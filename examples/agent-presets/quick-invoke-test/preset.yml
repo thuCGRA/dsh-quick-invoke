@@ -1,0 +1,2 @@
+name: Quick Invoke Test
+description: 用于验证 /agent 切换和测试 Skill 加载的最小 Agent preset。
