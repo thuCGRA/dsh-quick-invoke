@@ -41,6 +41,8 @@
 
 用户可以继续输入任务，然后手动发送。候选选择阶段不会调用 Host 命令，也不会执行 Skill、Agent 或 Plugin 操作。
 
+候选确认后插件会在草稿回填完成后自动把焦点交还当前会话输入框，用户无需再次点击即可继续输入。该行为只恢复输入焦点，不会自动发送消息。
+
 ## 工作原理
 
 插件由 Host 和 Client 两部分组成，两部分使用不同的 Cordis context，不能混用：
@@ -323,6 +325,7 @@ git diff --check
 - `CommandResult`；
 - Skill、Agent 和 Plugin 候选；
 - 输入框回填；
+- 候选确认后自动恢复输入框焦点；
 - 候选选择阶段不执行远程命令；
 - 项目级 Skill 和 Agent preset fixture。
 
@@ -353,7 +356,7 @@ git diff --check
 - 浏览器控制台是否出现 `[dsh-quick-invoke]` 日志；
 - 是否注册了重复的 input source。
 
-本插件使用 `ctx.commandUi.decorate()`，不会重复注册 `/` 输入 source。方向键、焦点和弹窗行为属于 DSH 公共 `popupSelect` 外壳；若 `↑`/`↓` 或回车行为异常，应同时检查公共 UI 组件和 composer focus binding。
+本插件使用 `ctx.commandUi.decorate()`，不会重复注册 `/` 输入 source。候选确认后的输入框焦点由插件在草稿回填后兼容恢复；若当前 DSH 版本仍出现失焦，应先确认加载的是最新 client bundle。`↑`/`↓` 的事件传播和弹窗内键盘行为仍属于 DSH 公共 `popupSelect` 外壳。
 
 ### `/skill` 找不到 Skill
 

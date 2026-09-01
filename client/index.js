@@ -13,6 +13,21 @@ const listAgentOptions = async (ctx) => {
     .map((preset) => ({ id: preset.id, label: preset.id, detail: preset.description }));
 };
 
+// DSH's popup controller exposes a composer-focus hook internally, but older
+// Web builds do not bind that hook from InputBar. Keep selection usable on
+// those builds by returning focus to the rendered composer after its draft
+// update has been queued. This deliberately does not submit the message.
+const focusComposerAfterSelection = () => {
+  const documentRef = globalThis.document;
+  if (!documentRef?.querySelectorAll) return;
+  const textareas = documentRef.querySelectorAll('[data-composer-card] textarea');
+  const textarea = Array.from(textareas).find((element) => !element.disabled);
+  if (!textarea || typeof textarea.focus !== 'function') return;
+  const focus = () => textarea.focus({ preventScroll: true });
+  if (typeof globalThis.queueMicrotask === 'function') globalThis.queueMicrotask(focus);
+  else globalThis.setTimeout?.(focus, 0);
+};
+
 const fillComposer = (ctx, command, option, session) => {
   const actx = ctx.sessions.scope(session.sessionId);
   const conversation = actx?.get?.('conversation');
@@ -27,6 +42,7 @@ const fillComposer = (ctx, command, option, session) => {
     text: `${token} ${option.id} `,
     span: { start: tokenStart >= 0 ? tokenStart : 0, end: state.draft.length, draftRev: state.draftRev }
   });
+  focusComposerAfterSelection();
 };
 
 export function apply(ctx) {

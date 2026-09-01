@@ -214,7 +214,7 @@ npm test
 
 其中 `test/web-e2e.test.js` 使用 `ModuleLoader`、`ClientContext`、Skill/Agent API 和 Remote Command API 的测试替身，覆盖三类命令的候选与提交，不依赖真实浏览器窗口。
 
-`↑`/`↓`、候选回车和回填后的再次回车属于 DSH 公共 popupSelect 外壳行为，插件测试只能验证插件没有绕过外壳执行远程命令。若出现方向键串到消息导航或回填后输入框失焦，应在 DSH 的 `PopupSelectView`/overlay 焦点绑定处修复，不能通过插件重复注册输入源来规避。
+`↑`/`↓` 和候选回车属于 DSH 公共 popupSelect 外壳行为；插件测试验证选择不绕过外壳执行远程命令，并验证选择后自动恢复输入框焦点。当前插件对 DSH Web 未绑定 composer focus 的版本提供了兼容聚焦逻辑。若出现方向键串到消息导航，应在 DSH 的 `PopupSelectView` keydown 事件传播处修复；不应通过插件重复注册输入源来规避。
 
 ### Task 7：安装到 DSH Web
 

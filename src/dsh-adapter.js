@@ -49,11 +49,12 @@ export function createDshAdapter(ctx) {
       if (!agent || typeof agent.followup !== 'function') {
         return { kind: 'error', text: 'No active agent is available for skill invocation' };
       }
-      const { createUserMessage } = await import('@deepseek-ai/dsh-llm');
-      agent.followup(createUserMessage({
+      agent.followup({
+        id: globalThis.crypto.randomUUID(),
+        role: 'user',
         content: [{ type: 'text', text: `/${name}${prompt ? ` ${prompt}` : ''}` }],
         source: { kind: 'user' }
-      }));
+      });
       return { kind: 'success', text: `Skill queued: ${name}` };
     },
     async invokeAgent(name, _prompt, invocation) {

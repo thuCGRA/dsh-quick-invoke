@@ -45,6 +45,33 @@ test('selecting a skill fills the composer and does not execute remotely', async
   }]]);
 });
 
+test('selection schedules focus back to the active composer without submitting', async () => {
+  const decorations = [];
+  const emitted = [];
+  let focused = 0;
+  const previousDocument = globalThis.document;
+  const previousQueueMicrotask = globalThis.queueMicrotask;
+  globalThis.document = { querySelectorAll: () => [{ disabled: false, focus: () => { focused += 1; } }] };
+  globalThis.queueMicrotask = (fn) => fn();
+  try {
+    const ctx = {
+      commandUi: { decorate(value) { decorations.push(value); return () => {}; } },
+      connection: { api: { skills: { list: async () => ({ result: { ok: true, value: { skills: [] } } }) }, agentPresets: { list: async () => ({ result: { ok: true, value: { presets: [] } } }) } } },
+      sessions: { scope() { return {
+        get() { return { input: { for: () => ({ state: { getSnapshot: () => ({ draft: '/skill', draftRev: 1 }) } }) } }; },
+        emit(name, request) { emitted.push([name, request]); }
+      }; } }
+    };
+    apply(ctx);
+    await decorations[0].ui.onSelect({ id: 'demo' }, { sessionId: 's1' });
+  } finally {
+    globalThis.document = previousDocument;
+    globalThis.queueMicrotask = previousQueueMicrotask;
+  }
+  assert.equal(focused, 1);
+  assert.equal(emitted[0][1].text, '/skill demo ');
+});
+
 test('browser client uses ModuleLoader and commandUi.decorate', async () => {
   const source = await readFile(new URL('../client/client.js', import.meta.url), 'utf8');
   assert.match(source, /window\.\__ModuleLoader__\.load\(\{/);

@@ -18,19 +18,26 @@ test('adapter exposes only user-invocable skills and read-only plugin inventory'
 
 test('skill invocation lists skills from the active Agent workspace and scope', async () => {
   const calls = [];
-  const agent = { session: { header: { cwd: '/workspace/project' } } };
+  const messages = [];
+  const agent = {
+    session: { header: { cwd: '/workspace/project' } },
+    followup: (message) => { messages.push(message); }
+  };
   const adapter = createDshAdapter({
     skills: {
       list: async (options) => {
         calls.push(options);
-        return [{ name: 'quick-invoke-test', invocation: { userInvocable: false } }];
+        return [{ name: 'quick-invoke-test', invocation: { userInvocable: true } }];
       }
     }
   });
-  assert.deepEqual(await adapter.invokeSkill('quick-invoke-test', '', { agent }), {
-    kind: 'error', text: 'Skill is unavailable for user invocation: quick-invoke-test'
+  assert.deepEqual(await adapter.invokeSkill('quick-invoke-test', '验证任务', { agent }), {
+    kind: 'success', text: 'Skill queued: quick-invoke-test'
   });
   assert.deepEqual(calls, [{ cwd: '/workspace/project', scope: agent }]);
+  assert.equal(messages[0].role, 'user');
+  assert.deepEqual(messages[0].content, [{ type: 'text', text: '/quick-invoke-test 验证任务' }]);
+  assert.deepEqual(messages[0].source, { kind: 'user' });
 });
 
 test('adapter never provides plugin enable or disable operations', () => {
