@@ -56,11 +56,15 @@ export function createDshAdapter(ctx) {
     async invokeAgent(name, _prompt, invocation) {
       const presets = service(ctx, 'agentPresets');
       const agent = invocation?.agent;
+      const agentCtx = agent?.ctx;
       if (!presets || typeof presets.recompose !== 'function' || !agent) {
         return { kind: 'error', text: 'Agent preset switching is unavailable in this session' };
       }
+      if (!agentCtx || typeof agentCtx !== 'object') {
+        return { kind: 'error', text: 'Agent preset switching requires a scoped Agent context' };
+      }
       try {
-        await presets.recompose(agent, name);
+        await presets.recompose(agentCtx, name);
         return { kind: 'success', text: `Agent preset selected: ${name}` };
       } catch (error) {
         return { kind: 'error', text: error instanceof Error ? error.message : String(error) };

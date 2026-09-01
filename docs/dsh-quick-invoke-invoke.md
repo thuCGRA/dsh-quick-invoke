@@ -82,7 +82,7 @@ Agent / preset
 3. 空白会话允许切换；
 4. 非空会话必须确认，第一版不自动创建隔离会话；
 5. 切换时保留 sandbox、approval、permission 和 tools 配置；
-6. 可使用 `recompose(agentCtx, id)` 执行空白 Agent 的 preset 重组。
+6. 必须把命令 invocation 中的 `agent.ctx` 作为 `agentCtx` 传给 `recompose(agentCtx, id)`；不能把 Agent 对象或根 Context 直接传入，否则 DSH 会报 `refusing to recompose an unscoped context`。
 
 测试示例：
 

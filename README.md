@@ -96,6 +96,8 @@ Agent preset 可能影响模型、提示词、工具、sandbox、approval 和 pe
 - preset 选择应由正式的 Agent preset API 处理；
 - Agent 权限不能因快捷命令而提升。
 
+Host 调用必须把命令 invocation 中的 `agent.ctx` 传给 `agentPresets.recompose(agentCtx, id)`。不能传入 Agent 对象或根 Context，否则 DSH 会报 `refusing to recompose an unscoped context`。
+
 ### Plugin
 
 `/plugin` 只面向插件发现和只读检查，不把插件容器当作 Tool，也不执行插件内部任意函数。
