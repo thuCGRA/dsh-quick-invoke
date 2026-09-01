@@ -10,7 +10,7 @@
 | `/agent <name> [task]` | 选择 Agent preset | 用户发送后由 Host 重组 Agent |
 | `/plugin list` | 查看已安装插件 | 读取 `pluginInventory.list()` |
 | `/plugin inspect <name>` | 查看插件状态 | 只读检查 |
-| `/plugin open <name>` | 打开插件公开 Web UI | 用户发送后处理 |
+| `/plugin open <name>` | 尝试打开插件公开 Web UI；无正式 opener 时明确失败 | 用户发送后处理 |
 
 本插件不注册 Tool 快捷命令，也不提供 `/plugin enable` 或 `/plugin disable`。插件启停属于 DSH 配置和 CLI 管理范围。
 
@@ -18,10 +18,10 @@
 
 - `src/index.js`：Host 入口，通过 `ctx.commands.register()` 注册命令。
 - `src/command-runtime.js`：解析参数并返回 DSH `CommandResult`。
-- `src/dsh-adapter.js`：隔离 DSH 服务 API，读取 Skill、Agent 和 Plugin 数据。
+- `src/dsh-adapter.js`：隔离 DSH 服务 API，读取 Skill、Agent preset 和只读 Plugin inventory。Host 与 Client 通过各自的 Cordis context / remote contract 连接，不跨端直接访问服务。
 - `client/client.js`：Web `ModuleLoader` 入口。
 - `client/index.js`：可测试的客户端实现镜像。
-- `ctx.commandUi.decorate()`：装饰 Host 命令并打开 `popupSelect` 候选框。
+- `ctx.commandUi.decorate()`：在 Client 端装饰已注册的 Host 命令并打开 `popupSelect` 候选框；不重复注册 `/` 输入 source。
 - `.dsh/skills/`：项目级测试 Skill，不是全局 Skill。
 - `examples/agent-presets/`：Agent preset 测试 fixture。
 - `cordis.patch.yml`：将 Host 入口加入 DSH profile 加载树。
@@ -63,7 +63,7 @@ cp -R examples/agent-presets/quick-invoke-test ~/.dsh/.agent-presets/
 3. 使用 `↑`、`↓` 移动候选，回车确认。
 4. 输入框回填完整命令；继续输入任务并手动发送。
 5. 使用 `/agent` 验证 preset 候选和回填。
-6. 使用 `/plugin list` 验证真实插件清单。
+6. 使用 `/plugin list` 验证 Host 暴露的只读插件 inventory（字段以当前 DSH 版本的公开 remote contract 为准）。
 7. Session log 必须出现成对的 `command/run` 和 `command/done`。
 
 正常输出类似：

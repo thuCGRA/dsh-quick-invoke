@@ -24,7 +24,7 @@ $NAME、${NAME}
 /plugin disable <plugin-name>
 ```
 
-快捷入口只面向 Skill、Agent 和 Plugin。Tool 仍由 Agent 根据自然语言自动选择，并通过 `ctx.tools.execute()` 执行。
+快捷入口只面向 Skill、Agent 和 Plugin。Tool 仍由 Agent 根据自然语言自动选择，并通过 DSH 现有 tools/approval/guard pipeline 执行；本插件不依赖或绕过未确认的内部 ToolRuntime API。
 
 ## 2. 概念边界
 
@@ -55,7 +55,7 @@ Agent / preset
 5. 复用 `dsh-tool-skill` 的 `agent/pre-step` 注入路径；
 6. 让剩余任务继续进入当前 Agent 回合。
 
-命令不能只返回“加载成功”。现有 `/技能名` 手势作为兼容别名保留，但宿主已注册命令优先。
+命令不能只返回“加载成功”。现有 `/技能名` 手势由已安装的 DSH Skill UI 能力负责；本插件不重复注册同名 `/` source，宿主命令优先。兼容性需随目标 DSH 版本回归验证。
 
 测试示例：
 
@@ -184,7 +184,7 @@ Host 命令：ctx.commands.register / list / find / execute
 Skill：ctx.skills.list / snapshot / get
 Agent：ctx.agentPresets.list / resolve / recompose
 工具安全：ctx.tools.execute 及 tools/* 生命周期
-插件查询：ctx.pluginInventory.list()
+插件查询：Host 侧由适配器读取公开 inventory；Client 侧通过 `ctx.remote.pluginInventory.list()` 获取只读投影
 ```
 
 ## 6. 解析与冲突规则
@@ -244,7 +244,7 @@ https://example.com/a/b       → 普通文本
 | 命令 | 选择对象 | 主要作用 | 最终处理方 |
 |---|---|---|---|
 | `/skill` | 用户可调用 Skill | 为当前任务提供流程、规范和知识 | 当前 Agent 的 Skill 注入/执行链路 |
-| `/agent` | Agent preset | 切换角色、提示词、模型、工具和权限组合 | Host 的 `agentPresets.recompose()` |
+| `/agent` | Agent preset | 在受支持的空白 Agent 生命周期内选择角色、提示词、模型、工具和权限组合 | Host 的正式 preset selection/mount API；`recompose()` 仅在满足空白 Agent 约束时使用 |
 | `/plugin` | 插件及只读操作 | 查看插件、检查信息或打开公开 Web UI | Host 的 `pluginInventory` / Web UI |
 
 它们的共同点是：都可以通过候选框选择，选择后先回填输入框，最终由用户发送。区别在于：Skill 改变当前任务的指导内容，Agent 改变当前会话使用的 Agent 配置，Plugin 负责插件管理和查看，不是普通任务执行器。
