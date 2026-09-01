@@ -38,7 +38,10 @@ export function createDshAdapter(ctx) {
     async invokeSkill(name, prompt, invocation) {
       const agent = invocation?.agent;
       const skills = service(ctx, 'skills');
-      const entries = skills && typeof skills.list === 'function' ? await skills.list({ scope: agent }) : [];
+      const cwd = agent?.session?.header?.cwd;
+      const entries = skills && typeof skills.list === 'function'
+        ? await skills.list({ ...(typeof cwd === 'string' ? { cwd } : {}), scope: agent })
+        : [];
       const skill = entries.find((entry) => entry.name === name);
       if (!skill || skill.invocation?.userInvocable !== true) {
         return { kind: 'error', text: `Skill is unavailable for user invocation: ${name}` };
