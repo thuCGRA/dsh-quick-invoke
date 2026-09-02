@@ -16,7 +16,7 @@ test('offers the three top-level commands and filters by query', async () => {
 test('offers dynamic skill and agent candidates after a command prefix', async () => {
   const source = createSlashSource({
     listInvocableSkills: async () => [{ name: 'quick-invoke-test', description: 'test skill' }],
-    listAgentPresets: async () => [{ name: 'quick-invoke-test', description: 'test agent' }]
+    listAgentPresets: async () => [{ name: 'quick-invoke-agent', description: 'test agent' }]
   });
   assert.deepEqual(
     (await source.candidates(session, request('skill '))).map((candidate) => candidate.name),
@@ -24,7 +24,7 @@ test('offers dynamic skill and agent candidates after a command prefix', async (
   );
   assert.deepEqual(
     (await source.candidates(session, request('agent q'))).map((candidate) => candidate.name),
-    ['quick-invoke-test']
+    ['quick-invoke-agent']
   );
 });
 

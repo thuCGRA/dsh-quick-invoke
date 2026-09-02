@@ -27,7 +27,7 @@
 ```text
 /skill quick-invoke-test 验证快捷调用链路
 /skill quick-invoke-skill-context 请复述任务上下文
-/agent quick-invoke-test 分析这个问题
+/agent quick-invoke-agent 分析这个问题
 /plugin list
 /plugin inspect dsh-quick-invoke
 ```
@@ -225,7 +225,7 @@ dsh web --no-open
 
 ```bash
 mkdir -p ~/.dsh/.agent-presets
-cp -R examples/agent-presets/quick-invoke-test ~/.dsh/.agent-presets/
+cp -R examples/agent-presets/quick-invoke-agent ~/.dsh/.agent-presets/
 ```
 
 测试 Skill 包括：
@@ -283,7 +283,7 @@ quick-invoke-skill-error
 
 1. 输入 `/agent`；
 2. 选择可用 preset；
-3. 确认输入框回填，例如 `/agent quick-invoke-test `；
+3. 确认输入框回填，例如 `/agent quick-invoke-agent `；
 4. 继续输入任务并手动发送；
 5. 在空白 Agent 上验证 preset 生命周期行为。
 

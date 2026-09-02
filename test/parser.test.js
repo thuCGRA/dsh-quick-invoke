@@ -15,7 +15,7 @@ test('parses a skill with a prompt', () => {
 });
 
 test('parses agent and read-only plugin commands', () => {
-  assert.equal(parseSlash('/agent quick-invoke-test').command.kind, 'agent');
+  assert.equal(parseSlash('/agent quick-invoke-agent').command.kind, 'agent');
   assert.equal(parseSlash('/plugin list').command.subcommand, 'list');
   assert.equal(parseSlash('/plugin inspect demo').command.name, 'demo');
   assert.equal(parseSlash('/plugin open demo').command.name, 'demo');

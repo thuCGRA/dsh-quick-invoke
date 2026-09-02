@@ -1,267 +1,238 @@
-# DSH Quick Invoke 开发计划
+# DSH Quick Invoke 修订开发方案
 
-## 1. 开发目标
+## 1. 目标与范围
 
-实现独立 Cordis 插件 `dsh-quick-invoke`，为 DSH Web 提供以下快捷调用：
+`dsh-quick-invoke` 是独立 Cordis 插件，为 DSH Web 提供 `/` 快捷命令、候选补全和 Host 权威执行。不修改 DSH 核心，不提供 `/tool`，不把 Plugin 当作 Tool 直调入口。
+
+第一版只承诺：
 
 ```text
-/skill <skill-name> [任务]
-/agent <agent-name> [任务]
+/skill <skill-name> [task]
+/agent <preset-name>
 /plugin list
 /plugin inspect <plugin-name>
-/plugin open <plugin-name>
 ```
 
-使用 DSH `0.1.1-rc.2` 同版本包，不修改 DSH 核心，不实现 Tool 快捷命令或插件启停命令。
-
-## 2. 目录结构
+以下能力延期：
 
 ```text
-dsh-quick-invoke/
-├── docs/
-│   ├── dsh-quick-invoke-invoke.md
-│   └── dsh-quick-invoke-plan.md
-├── .dsh/skills/quick-invoke-test/SKILL.md
-├── examples/agent-presets/quick-invoke-test/
-│   ├── agent.cordis.yml
-│   └── preset.yml
-├── src/
-│   ├── index.js
-│   ├── parser.js
-│   ├── dsh-adapter.js
-│   └── command-runtime.js
-├── client/
-│   ├── index.js
-│   └── slash-source.js
-└── test/
+/plugin open <plugin-name>
+/plugin enable <plugin-name>
+/plugin disable <plugin-name>
+非空会话中的 Agent 运行时重组
 ```
 
-## 3. 开发阶段
+## 2. Host 与 Client 边界
 
-| 阶段 | 工作内容 | 交付物 | 通过条件 |
+Host 与 Client 使用不同的 Cordis context，不能互相直接读取服务。
+
+| 能力 | 所属端 | 接口/来源 | 约束 |
 |---|---|---|---|
-| M0 | 锁定 DSH 版本，确认包导出和 Cordis 加载方式 | API 清单 | 依赖均可解析 |
-| M1 | 建立 package、TypeScript、Cordis 插件入口 | 可加载骨架 | 可导入、卸载 |
-| M2 | 实现命令模型、名称校验和纯解析器 | Parser | 正例、拒绝例通过 |
-| M3 | 注册 `skill`、`agent`、`plugin` Host 命令 | 命令运行时 | 仅注册支持的命令 |
-| M4 | 接入 `/` 输入源和补全 | Client source | UI/直接提交一致 |
-| M5 | 接入 Skill、Agent、Plugin 只读流程 | MVP | 三类命令可运行 |
-| M6 | 完成权限、审计、卸载和回归测试 | 测试报告 | 安全和兼容性通过 |
-| M7 | 安装到 DSH Web 并验证真实会话 | 发布包 | Web 中可用，Session log 可见 Host 命令生命周期 |
+| 命令注册和执行 | Host | `ctx.commands.register/find/execute` | 自动记录 `command/run`、`command/done` |
+| Skill | Host | `ctx.skills.list/snapshot/get` | 调用方必须检查 `invocation.userInvocable` |
+| Agent preset | Host | `ctx.agentPresets.list/resolve` 与正式 selection/mount 生命周期 | `recompose` 仅用于允许重组的空白 Agent |
+| Plugin inventory | Host 投影 / Client Remote | 公开 inventory list contract | 只读，字段有限 |
+| 候选补全 | Client | `ctx.commandUi.decorate()` 或唯一 `InputTriggerSource` | 只展示、选择和回填 |
+| Tool | Agent pipeline | Agent 自然语言选择 | 本插件不透传执行 |
 
-M0–M5 构成 MVP。`/plugin enable` 和 `/plugin disable` 不在任何阶段实现。
+Host 入口导出 `name`、必要的 `inject` 和 `apply(ctx)`；Client 入口导出自己的 `inject` 和 `apply(ctx)`。通过 `ctx.effect` 清理注册 disposer。依赖声明使用真实服务键，不能把包名当作 inject 项。
 
-## 4. 详细任务
+## 3. 命令语义
 
-### Task 1：建立插件包
+### 3.1 `/skill`
 
-创建 `package.json`、`src/index.js`、`src/dsh-adapter.js` 和 Node 原生测试。
+```text
+/skill <skill-name> [task]
+```
 
-使用同版本 DSH 包，并配置：
+Host 处理：
+
+1. 解析名称和任务原文；
+2. 在当前 Agent 的 cwd 和 scope 下查询 Skill；
+3. 检查 `invocation.userInvocable === true`；
+4. 构造标准 Skill invocation；
+5. 有 task 时通过受支持的 Agent follow-up/steer 或注入入口继续任务；
+6. 无 task 时只报告验证/加载结果，不启动伪造的空回合；
+7. 取消、失效或注入失败时返回明确错误。
+
+仅调用 `ctx.skills.get()` 不会自动启动 Agent。现有 `/技能名` 手势由目标 DSH 的 Skill UI 能力负责；本插件不重复注册同名 `/` source，兼容性必须回归验证。
+
+### 3.2 `/agent`
+
+```text
+/agent <preset-name>
+```
+
+第一版只支持空白、idle 且允许重组的 Agent，不接受命令后的 task。用户应在 preset 应用后单独发送任务。
+
+Host 处理：
+
+1. 用 `ctx.agentPresets.resolve()` 验证 preset 存在、可读且非 broken；
+2. 检查当前 Agent 没有任何产出且不在运行；
+3. 检查目标组合不突破 session/user/environment 权限上限；
+4. 通过正式 preset selection/mount/recompose 生命周期应用；
+5. 记录 `agent-preset/selected`，保证恢复时可以重建组合；
+6. 失败时保持原 Agent 不变。
+
+非空会话不得静默切换。确认 UI、隔离新会话和上下文继承属于后续版本。
+
+### 3.3 `/plugin`
+
+第一版只做只读发现：
+
+```text
+/plugin list
+/plugin inspect <plugin-name>
+```
+
+`pluginInventory` 是只读投影，inspect 只能展示目标 DSH 版本公开的 Loader entry/module/enabled/phase 等字段，不能承诺自动获得完整 Tool、Command、Web UI 或权限清单。
+
+`open` 只有存在正式 Web route/navigation contract 时才可实现；没有 contract 时应不注册或返回 `unsupported`。`enable/disable` 需要 Loader mutation、授权、并发锁、回滚和生命周期 API，当前不实现。
+
+## 4. Parser 设计
+
+Parser 是纯函数，不做 IO、不访问 Cordis、不执行命令。
+
+```ts
+type ParseResult =
+  | { ok: true; command: SlashInvoke }
+  | { ok: false; code: 'not-command' }
+  | { ok: false; code: ParseErrorCode; position: number; message: string }
+```
+
+```ts
+type SlashInvoke =
+  | { kind: 'skill'; name: string; prompt?: string; rawInput: string }
+  | { kind: 'agent'; name: string; rawInput: string }
+  | { kind: 'plugin'; subcommand: 'list' | 'inspect'; name?: string; rawInput: string }
+```
+
+规则：
+
+- 只识别输入第一个非空位置的 `/`；
+- 命令名后必须是空白或输入结束；
+- 命令和目标名称遵守 DSH 小写 kebab-case 约束；
+- URL、代码块、转义斜杠和普通句子中的 `/` 不触发；
+- 名称、任务和总输入有明确长度上限；
+- 控制字符和非法名称显式报错；
+- 普通文本、语法错误、未知命令、未知目标、权限拒绝分别表示；
+- 解析失败不得降级执行近似能力。
+
+Host 执行时必须重新解析、查找和授权，不能信任 Client 候选对象。
+
+## 5. Client 补全
+
+优先复用 DSH 内置 command UI 和已有 Skill source：
+
+```text
+/              → /skill、/agent、/plugin
+/sk             → /skill
+/skill          → Skill 候选
+/agent          → preset 候选
+/plugin         → list、inspect
+/plugin inspect → Plugin 候选
+```
+
+候选选择只回填文本，例如：
+
+```text
+/skill quick-invoke-test
+```
+
+用户再次手动发送后才执行。候选阶段不能调用 Host 命令、加载 Skill、切换 Agent 或执行 Plugin 操作。
+
+如果必须注册 `InputTriggerSource`，必须使用唯一 source 名称，不能与现有 `dsh-client-ui-skill` 的 `name: 'skill'` 冲突。候选应处理加载中、无结果、错误、热更新、IME、Esc、方向键和回填焦点。
+
+## 6. 安全与会话
+
+有效权限不能超过安全上限：
+
+```text
+effectivePolicy = session/user upper bound ∩ preset policy ∩ environment policy
+```
+
+Skill、preset 和 Plugin 元数据均视为不可信内容：不能伪造 system/developer 消息，不能改变权限，不能隐式触发 Tool。
+
+命令必须处理取消、Agent busy、候选过期、目标删除、能力变化、重复提交、并发提交、热更新、卸载和错误脱敏。
+
+复用 DSH 的 `command/run` 与 `command/done`，不重复伪造命令生命周期。preset 选择额外记录 `agent-preset/selected`。恢复只恢复记录和 UI 状态；副作用默认不自动重放，执行性重放必须重新授权和确认。
+
+## 7. 里程碑
+
+| 阶段 | 内容 | 完成条件 |
+|---|---|---|
+| M0 | 真实接口清单、Host/Client 依赖、Parser 和错误码 | API、AST、错误矩阵确定 |
+| M1 | Host 命令骨架和命令生命周期 | 注册/卸载正确，生命周期事件成对 |
+| M2 | Client 命令 UI 和动态候选 | 候选只回填，UI 与直接提交一致 |
+| M3 | `/skill` | user-invocable、follow-up、取消和错误测试通过 |
+| M4 | `/plugin list/inspect` | 仅使用公开只读 inventory 字段 |
+| M5 | 空白 Agent preset | 正式 selection/mount、选择事件、权限检查通过 |
+| M6 | 回归和真实 Web 验收 | 安全、恢复、卸载、热更新和 Web 流程通过 |
+| 后续 | 非空会话隔离、`open`、`enable/disable` | 找到正式 DSH contract 后另立设计 |
+
+每一阶段必须执行：读取真实类型 → 先写失败测试 → 最小实现 → 阶段测试 → 完整回归 → 卸载清理检查 → 更新文档。未通过不得进入下一阶段。
+
+## 8. 验收标准
+
+### Parser
+
+- 三种第一版命令解析正确；
+- URL、代码块、转义斜杠不误触发；
+- 错误有稳定 code 和 position；
+- 解析失败绝不执行；
+- 超长、控制字符、Unicode 和连续空白行为确定。
+
+### Skill
+
+- 只允许 user-invocable Skill；
+- `/skill name task` 确实提交受支持的 Skill invocation/follow-up；
+- 无 task 不启动伪造模型回合；
+- 取消、失效和重复提交结果确定；
+- Skill 内容不能改变权限。
+
+### Agent
+
+- 第一版仅空白 idle Agent；
+- 非空会话不静默重组；
+- preset 选择事件可恢复；
+- 权限不能扩大；
+- 命令后的 task 明确不接受。
+
+### Plugin
+
+- `list/inspect` 只读；
+- 只展示公开字段；
+- 不执行任意内部函数；
+- `open/enable/disable` 在无正式 contract 时明确 unsupported 或不注册。
+
+### Client 与会话
+
+- `/`、`/sk`、`/skill`、`/agent`、`/plugin` 候选正常；
+- `↑`、`↓`、Enter、Esc、IME 和焦点行为正常；
+- 选择不执行，手动发送才执行；
+- 直接提交和 UI 提交结果一致；
+- 命令有成对生命周期事件；
+- 插件卸载无残留；
+- 原有命令、Skill gesture、文件引用和普通文本无回归。
+
+## 9. 第一版最终状态
 
 ```json
 {
-  "scripts": {
-    "test": "node --test --test-isolation=none test/**/*.test.js"
-  }
+  "shortcutSyntax": ["/"],
+  "uiCompletion": true,
+  "skillShortcut": true,
+  "agentShortcut": "empty-idle-agent-only",
+  "pluginShortcut": "read-only",
+  "pluginList": true,
+  "pluginInspect": true,
+  "pluginOpen": false,
+  "pluginEnableDisable": false,
+  "toolShortcut": false,
+  "hostClientSeparated": true,
+  "coreChangesRequired": false,
+  "agentNonEmptySession": "reject-until-isolation-flow-exists"
 }
 ```
 
-验证：
-
-```bash
-npm test
-npm run typecheck
-```
-
-### Task 2：实现纯解析器
-
-创建 `src/model.ts`、`src/parser.ts` 和 `test/parser.test.ts`。
-
-必须测试：
-
-```text
-/skill quick-invoke-test 验证命令
-/agent quick-invoke-test
-/plugin list
-/plugin inspect sample
-/plugin open sample
-```
-
-必须拒绝：
-
-```text
-/tool sample
-@skill:sample
-$NAME
-/plugin enable sample
-/plugin disable sample
-```
-
-同时覆盖 URL、代码块、转义 `/`、未知命令、空参数、多余空格和旧 `/技能名` 手势。
-
-### Task 3：接入 Host 命令
-
-创建 `src/command-runtime.ts` 和 `test/commands.test.ts`。
-
-- 使用 `ctx.commands.register()` 注册 `skill`、`agent`、`plugin`；
-- 三条命令必须声明 `input.hint`，否则带参数输入不会进入 Host Command；
-- 使用 `ctx.commands.execute()` 完成权威执行和生命周期记录；
-- Skill 使用 `ctx.skills.list/get` 和 `userInvocable` 校验；
-- Agent 使用 `ctx.agentPresets.list/resolve/recompose`；
-- Plugin 使用 `pluginInventory.list()`，只允许 `list/inspect/open`；
-- 不注册 `tool`、`enable` 或 `disable`。
-
-### Task 4：接入 UI 补全
-
-创建 `client/client.js`、`client/index.js` 和 `test/web-e2e.test.js`。
-
-使用：
-
-```ts
-ctx.commandUi.decorate(decoration);
-```
-
-覆盖 `/`、`/sk`、`/skill `、`/agent `、`/plugin `、`/plugin inspect ` 和 `/plugin open `。Host 提交时必须重新解析和校验，不能信任 UI 候选结果。
-
-### Task 5：安全与回归
-
-创建 `src/security.ts`、`test/security.test.ts` 和 `test/regression.test.ts`。
-
-验证：
-
-- 不可调用 Skill 被拒绝；
-- 非空会话切换 Agent 需要确认；
-- Agent preset 的权限配置不被改变；
-- Plugin 不执行任意内部函数；
-- Tool 仍由 `ctx.tools.execute()` 处理；
-- `command/run` 与 `command/done` 成对；
-- 插件卸载后命令、输入源和监听器全部清理；
-- 旧命令、旧 Skill 手势、普通文本和文件引用不回归。
-
-### Task 6：测试 Skill 和 Agent
-
-Skill 已提供于：
-
-```text
-.dsh/skills/quick-invoke-test/SKILL.md
-```
-
-验证：
-
-```text
-/skill quick-invoke-test 验证快捷调用链路
-```
-
-Agent fixture 已提供于：
-
-```text
-examples/agent-presets/quick-invoke-test/
-```
-
-安装到 DSH 用户 preset 根目录：
-
-```bash
-mkdir -p ~/.dsh/.agent-presets
-cp -R examples/agent-presets/quick-invoke-test ~/.dsh/.agent-presets/
-```
-
-验证：
-
-```text
-/agent quick-invoke-test
-```
-
-补充的 Skill 测试组：
-
-| Skill | 验证重点 |
-|---|---|
-| `quick-invoke-skill-load` | 候选发现、选择和加载确认 |
-| `quick-invoke-skill-context` | Skill 名称后的任务上下文传递 |
-| `quick-invoke-skill-error` | 空名称、未知名称和分阶段发送边界 |
-| `quick-invoke-test` | 基础 Skill 加载与任务继续 |
-
-Agent 验证分为两段：Web 端验证候选和回填，Host 端验证 `agentPresets.recompose()` 收到当前 Agent 与 preset 名称。这样可以区分“选择成功”和“最终切换成功”。
-
-### Task 6.1：Web 端完整测试流程
-
-启动 Web：
-
-```bash
-dsh web --no-open
-```
-
-浏览器打开 `http://127.0.0.1:3080`。首次更新插件后执行一次强制刷新。
-
-按以下顺序验证：
-
-1. 输入 `/`，应看到 `skill`、`agent`、`plugin` 三个入口。
-2. 输入 `/agent` 后按回车，弹出 Agent preset 选择框；选择 `quick-invoke-test` 并等待会话切换完成。
-3. 输入 `/skill` 后按回车，弹出 Skill 选择框；选择 `quick-invoke-test`，再输入任务并提交。
-4. 输入 `/plugin `，应看到 `list`、`inspect`、`open`。
-5. 选择 `/plugin list`，应返回插件清单。
-6. 输入 `/plugin enable` 或 `/plugin disable`，不得出现候选，也不得执行。
-
-每次真实 Web 验收还必须查看 Session log：`/plugin list` 必须出现成对的 `command/run` 和 `command/done`，且结果来自 `pluginInventory.list()`。只有模型文本而没有这对事件时，验收失败。
-
-注意：`quick-invoke-test` 是随测试 Agent preset 挂载的 Skill。若当前会话使用其他 preset，`/skill` 列表中可能不会出现它，应先完成第 2 步。
-
-自动化 Web 测试：
-
-```bash
-npm test
-```
-
-其中 `test/web-e2e.test.js` 使用 `ModuleLoader`、`ClientContext`、Skill/Agent API 和 Remote Command API 的测试替身，覆盖三类命令的候选与提交，不依赖真实浏览器窗口。
-
-`↑`/`↓` 和候选回车属于 DSH 公共 popupSelect 外壳行为；插件测试验证选择不绕过外壳执行远程命令，并验证选择后自动恢复输入框焦点。当前插件对 DSH Web 未绑定 composer focus 的版本提供了兼容聚焦逻辑。若出现方向键串到消息导航，应在 DSH 的 `PopupSelectView` keydown 事件传播处修复；不应通过插件重复注册输入源来规避。
-
-### Task 7：安装到 DSH Web
-
-构建并安装：
-
-```bash
-dsh plugin --profile web add /home/gujy/agent/deepseek_harness/harness_plugin/dsh-quick-invoke
-dsh web
-```
-
-验证：
-
-- `/`、`/skill`、`/agent`、`/plugin` 出现在命令 UI；
-- Skill 列表能够发现 `quick-invoke-test`；
-- Agent 列表能够发现复制后的 `quick-invoke-test`；
-- Plugin 只显示 `list/inspect/open`；
-- `/plugin enable` 和 `/plugin disable` 不出现在候选或命令目录；
-- 命令生命周期和结果能够持久化。
-
-## 5. 固定开发流程
-
-每个 Task 都执行：
-
-```text
-读取真实 DSH 类型定义
-  → 编写失败测试
-  → 确认失败原因
-  → 实现最小功能
-  → 运行阶段测试
-  → 运行完整回归
-  → 检查卸载清理
-  → 更新文档
-```
-
-任何阶段未通过，不进入下一阶段。
-
-## 6. 发布验收清单
-
-- [ ] 文档目录只有 `docs/`；
-- [ ] 入口设计与开发计划分为两个独立 Markdown 文件；
-- [ ] 没有特定业务领域依赖；
-- [ ] Skill frontmatter 合法且 `user-invocable: true`；
-- [ ] Agent preset YAML 可解析；
-- [ ] 只注册五种支持的用户入口行为；
-- [ ] `/tool`、`@...`、`$...` 和插件启停命令被拒绝；
-- [ ] Host 权威解析和权限检查有效；
-- [ ] UI 补全和直接提交结果一致；
-- [ ] ToolRuntime 安全链路不被绕过；
-- [ ] 插件卸载无残留注册；
-- [ ] DSH Web 端到端验证通过。
+最终原则：先交付小而深的 Parser、Host command、内置 Client command UI、Skill invocation、只读 Plugin inventory 和空白 Agent preset；非空 Agent 重组、插件启停、Web 导航和任意 Tool 透传另行设计。

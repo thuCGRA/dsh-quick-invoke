@@ -4,14 +4,22 @@
 
 `dsh-quick-invoke` 是独立 Cordis 插件，只增加 `/` 快捷入口，不修改 DSH 核心。
 
-支持：
+第一版支持：
 
 ```text
 /skill <skill-name> [任务]
-/agent <agent-name> [任务]
+/agent <preset-name>
 /plugin list
 /plugin inspect <plugin-name>
+```
+
+以下能力延期，当前不作为本插件承诺：
+
+```text
 /plugin open <plugin-name>
+/plugin enable <plugin-name>
+/plugin disable <plugin-name>
+非空会话中的 Agent 运行时重组
 ```
 
 不支持：
@@ -79,18 +87,19 @@ Agent / preset
 
 1. 使用 `ctx.agentPresets.list()` / `resolve()` 查询 preset；
 2. 检查 preset 是否损坏、锁定或不可用；
-3. 空白会话允许切换；
-4. 非空会话必须确认，第一版不自动创建隔离会话；
-5. 切换时保留 sandbox、approval、permission 和 tools 配置；
-6. 必须把命令 invocation 中的 `agent.ctx` 作为 `agentCtx` 传给 `recompose(agentCtx, id)`；不能把 Agent 对象或根 Context 直接传入，否则 DSH 会报 `refusing to recompose an unscoped context`。
+3. 第一版只允许空白、idle 且允许重组的 Agent；
+4. 使用正式的 preset selection/mount 生命周期；满足约束时才调用 `recompose(agentCtx, id)`；
+5. 切换时不得突破 session/user/environment 权限上限；
+6. 记录 `agent-preset/selected`，保证会话恢复能够重建 preset；
+7. 必须把命令 invocation 中的 Agent scope context 作为 `agentCtx` 传给重组 API，不能传入 Agent 对象或根 Context。
 
 测试示例：
 
 ```text
-/agent quick-invoke-test
+/agent quick-invoke-agent
 ```
 
-Agent 的 Web 测试流程与 Skill 一致：输入 `/agent` 后按回车打开候选框，用 `↑`、`↓` 移动并按回车，输入框应回填 `/agent quick-invoke-test `。继续输入任务并手动发送；选择候选阶段不执行 preset 切换。最终发送后，Host 端才通过 `agentPresets.recompose()` 切换当前 Agent。
+Agent 的 Web 测试流程与 Skill 一致：输入 `/agent` 后按回车打开候选框，用 `↑`、`↓` 移动并按回车，输入框应回填 `/agent quick-invoke-agent `。继续输入任务并手动发送；选择候选阶段不执行 preset 切换。最终发送后，Host 端才通过 `agentPresets.recompose()` 切换当前 Agent。
 
 ### Plugin
 
@@ -135,11 +144,11 @@ DSH Command / Skill / Agent / Plugin / ToolRuntime API
 |---|---|
 | `SlashParser` | 将原始文本解析为结构化命令 |
 | `CompletionProvider` | 提供动态候选和文本插入 |
-| `SkillInvoker` | 查找、校验、注入 Skill |
-| `AgentInvoker` | 查询 preset 并执行切换 |
-| `PluginExplorer` | 查询、检查和打开插件 |
-| `PermissionGuard` | 处理能力、作用域、权限和确认 |
-| `AuditRecorder` | 记录命令输入、状态和结果 |
+| `SkillInvoker` | 查找、校验、构造 Skill invocation |
+| `AgentInvoker` | 在空白 Agent 生命周期内查询并应用 preset |
+| `PluginExplorer` | 查询和检查只读 inventory |
+| `PermissionGuard` | 处理能力、作用域、权限和状态 |
+| `AuditRecorder` | 复用命令生命周期并关联领域事件 |
 | `DshAdapter` | 隔离 DSH 版本差异 |
 
 插件不得绕过适配层直接依赖 DSH 内部实现。
@@ -149,7 +158,7 @@ DSH Command / Skill / Agent / Plugin / ToolRuntime API
 ```ts
 type SlashInvoke =
   | { kind: "skill"; name: string; prompt?: string; rawInput: string }
-  | { kind: "agent"; name: string; prompt?: string; rawInput: string }
+  | { kind: "agent"; name: string; rawInput: string }
   | {
       kind: "plugin";
       subcommand: "list" | "inspect" | "open";
@@ -245,8 +254,8 @@ https://example.com/a/b       → 普通文本
 | 命令 | 选择对象 | 主要作用 | 最终处理方 |
 |---|---|---|---|
 | `/skill` | 用户可调用 Skill | 为当前任务提供流程、规范和知识 | 当前 Agent 的 Skill 注入/执行链路 |
-| `/agent` | Agent preset | 在受支持的空白 Agent 生命周期内选择角色、提示词、模型、工具和权限组合 | Host 的正式 preset selection/mount API；`recompose()` 仅在满足空白 Agent 约束时使用 |
-| `/plugin` | 插件及只读操作 | 查看插件、检查信息或打开公开 Web UI | Host 的 `pluginInventory` / Web UI |
+| `/agent` | Agent preset | 在受支持的空白 Agent 生命周期内选择角色、提示词、模型、工具和权限组合 | Host 的正式 preset selection/mount API；第一版不处理非空会话 |
+| `/plugin` | 插件及只读操作 | 查看插件和检查公开 inventory 信息 | Host 的只读 `pluginInventory` 投影 |
 
 它们的共同点是：都可以通过候选框选择，选择后先回填输入框，最终由用户发送。区别在于：Skill 改变当前任务的指导内容，Agent 改变当前会话使用的 Agent 配置，Plugin 负责插件管理和查看，不是普通任务执行器。
 
@@ -254,7 +263,8 @@ https://example.com/a/b       → 普通文本
 
 ```text
 /skill quick-invoke-skill-context 请复述任务
-/agent quick-invoke-test 分析这个问题
+/agent quick-invoke-agent
+# 应用 preset 后，再单独发送：分析这个问题
 /plugin list
 /plugin inspect dsh-quick-invoke
 /plugin open dsh-quick-invoke
@@ -281,4 +291,4 @@ CLI:     /home/gujy/.nvm/versions/node/v24.19.0/bin/dsh
 Web 配置: /home/gujy/.dsh/profiles/web
 ```
 
-已确认存在命令、输入触发、命令 UI、Skill、Agent preset、ToolRuntime 和只读 Plugin Inventory 相关包。当前工作区的测试 Skill 位于 `.dsh/skills/quick-invoke-test/`；测试 Agent preset fixture 位于 `examples/agent-presets/quick-invoke-test/`。
+已确认存在命令、输入触发、命令 UI、Skill、Agent preset、ToolRuntime 和只读 Plugin Inventory 相关包。当前工作区的测试 Skill 位于 `.dsh/skills/quick-invoke-test/`；测试 Agent preset fixture 位于 `examples/agent-presets/quick-invoke-agent/`。
