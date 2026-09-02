@@ -58,6 +58,35 @@ test('adapter switches the selected Agent preset for the active session', async 
   assert.deepEqual(calls, [[agent.ctx, 'quick-invoke-agent']]);
 });
 
+test('adapter submits the Agent prompt once after a successful preset switch', async () => {
+  const messages = [];
+  const agent = { ctx: {}, followup: (message) => { messages.push(message); } };
+  const adapter = createDshAdapter({
+    agentPresets: { recompose: async () => {} }
+  });
+
+  assert.deepEqual(await adapter.invokeAgent('quick-invoke-agent', '分析当前问题', { agent }), {
+    kind: 'success', text: 'Agent preset selected: quick-invoke-agent'
+  });
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0].role, 'user');
+  assert.deepEqual(messages[0].content, [{ type: 'text', text: '分析当前问题' }]);
+  assert.deepEqual(messages[0].source, { kind: 'user' });
+});
+
+test('adapter does not submit an Agent prompt when preset switching fails', async () => {
+  const messages = [];
+  const agent = { ctx: {}, followup: (message) => { messages.push(message); } };
+  const adapter = createDshAdapter({
+    agentPresets: { recompose: async () => { throw new Error('preset failed'); } }
+  });
+
+  assert.deepEqual(await adapter.invokeAgent('quick-invoke-agent', '不要发送', { agent }), {
+    kind: 'error', text: 'preset failed'
+  });
+  assert.deepEqual(messages, []);
+});
+
 test('adapter refuses Agent preset switching without a scoped Agent context', async () => {
   const adapter = createDshAdapter({
     agentPresets: { recompose: async () => { throw new Error('must not be called'); } }

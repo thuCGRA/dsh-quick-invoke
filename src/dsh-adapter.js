@@ -2,6 +2,15 @@ function service(ctx, name) {
   return ctx?.[name];
 }
 
+function submitUserFollowup(agent, text) {
+  agent.followup({
+    id: globalThis.crypto.randomUUID(),
+    role: 'user',
+    content: [{ type: 'text', text }],
+    source: { kind: 'user' }
+  });
+}
+
 /** Adapt the installed DSH services to the plugin's small, testable contract. */
 export function createDshAdapter(ctx) {
   return {
@@ -69,6 +78,7 @@ export function createDshAdapter(ctx) {
       }
       try {
         await presets.recompose(agentCtx, name);
+        if (typeof _prompt === 'string' && _prompt.length > 0) submitUserFollowup(agent, _prompt);
         return { kind: 'success', text: `Agent preset selected: ${name}` };
       } catch (error) {
         return { kind: 'error', text: error instanceof Error ? error.message : String(error) };

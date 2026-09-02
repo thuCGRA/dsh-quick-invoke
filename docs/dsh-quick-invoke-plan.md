@@ -8,7 +8,7 @@
 
 ```text
 /skill <skill-name> [task]
-/agent <preset-name>
+/agent <preset-name> [prompt]
 /plugin list
 /plugin inspect <plugin-name>
 ```
@@ -63,7 +63,7 @@ Host 处理：
 /agent <preset-name>
 ```
 
-第一版只支持空白、idle 且允许重组的 Agent，不接受命令后的 task。用户应在 preset 应用后单独发送任务。
+第一版只支持空白、idle 且允许重组的 Agent，同时兼容命令后的 prompt。无 prompt 时只应用 preset；有 prompt 时先完成 preset 切换，成功后再自动提交一次 prompt。已有会话仍然拒绝切换。
 
 Host 处理：
 
@@ -196,7 +196,7 @@ Skill、preset 和 Plugin 元数据均视为不可信内容：不能伪造 syste
 - 非空会话不静默重组；
 - preset 选择事件可恢复；
 - 权限不能扩大；
-- 命令后的 task 明确不接受。
+- 命令后的 prompt 仅在 preset 切换成功后提交一次；切换失败不得提交。
 
 ### Plugin
 

@@ -38,7 +38,7 @@
 /skill quick-invoke-test 
 ```
 
-用户可以继续输入任务，然后手动发送。候选选择阶段不会调用 Host 命令，也不会执行 Skill、Agent 或 Plugin 操作。
+用户可以继续输入任务，然后手动发送。对于 `/agent <name> <task>`，Host 会先切换空白 Agent preset，切换成功后自动提交一次 task；候选选择阶段不会调用 Host 命令，也不会执行 Skill、Agent 或 Plugin 操作。
 
 候选确认后插件会在草稿回填完成后自动把焦点交还当前会话输入框，用户无需再次点击即可继续输入。该行为只恢复输入焦点，不会自动发送消息。
 

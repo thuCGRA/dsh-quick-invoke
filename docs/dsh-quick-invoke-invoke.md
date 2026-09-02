@@ -8,7 +8,7 @@
 
 ```text
 /skill <skill-name> [任务]
-/agent <preset-name>
+/agent <preset-name> [prompt]
 /plugin list
 /plugin inspect <plugin-name>
 ```
@@ -99,7 +99,7 @@ Agent / preset
 /agent quick-invoke-agent
 ```
 
-Agent 的 Web 测试流程与 Skill 一致：输入 `/agent` 后按回车打开候选框，用 `↑`、`↓` 移动并按回车，输入框应回填 `/agent quick-invoke-agent `。继续输入任务并手动发送；选择候选阶段不执行 preset 切换。最终发送后，Host 端才通过 `agentPresets.recompose()` 切换当前 Agent。
+Agent 的 Web 测试流程与 Skill 一致：输入 `/agent` 后按回车打开候选框，用 `↑`、`↓` 移动并按回车，输入框应回填 `/agent quick-invoke-agent `。可以继续输入 prompt 并手动发送；选择候选阶段不执行 preset 切换。Host 端先通过 `agentPresets.recompose()` 切换当前空白 Agent，切换成功后再将 prompt 作为一次新的用户 follow-up 自动提交；没有 prompt 时只切换 preset。
 
 ### Plugin
 
@@ -158,7 +158,7 @@ DSH Command / Skill / Agent / Plugin / ToolRuntime API
 ```ts
 type SlashInvoke =
   | { kind: "skill"; name: string; prompt?: string; rawInput: string }
-  | { kind: "agent"; name: string; rawInput: string }
+  | { kind: "agent"; name: string; prompt?: string; rawInput: string }
   | {
       kind: "plugin";
       subcommand: "list" | "inspect" | "open";
@@ -176,7 +176,7 @@ interface DshAdapter {
 
   listAgentPresets(): Promise<AgentPresetInfo[]>;
   getSessionState(): Promise<SessionState>;
-  switchAgent(name: string): Promise<InvokeResult>;
+  switchAgent(name: string, prompt?: string): Promise<InvokeResult>;
 
   listPlugins(): Promise<PluginInfo[]>;
   inspectPlugin(name: string): Promise<PluginDetails>;
