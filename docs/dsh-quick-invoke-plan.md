@@ -4,7 +4,7 @@
 
 `dsh-quick-invoke` 是独立 Cordis 插件，为 DSH Web 提供 `/` 快捷命令、候选补全和 Host 权威执行。不修改 DSH 核心，不提供 `/tool`，不把 Plugin 当作 Tool 直调入口。
 
-第一版只承诺：
+当前版本实现并承诺：
 
 ```text
 /skill <skill-name> [task]
@@ -13,10 +13,12 @@
 /plugin inspect <plugin-name>
 ```
 
+`/plugin open <plugin-name>` 也注册为兼容性命令，但当前没有通用 Web opener，执行时会明确返回 unsupported；它不是成功的 Web 导航能力。
+
 以下能力延期：
 
 ```text
-/plugin open <plugin-name>
+/plugin open 的实际 Web 导航
 /plugin enable <plugin-name>
 /plugin disable <plugin-name>
 非空会话中的 Agent 运行时重组
@@ -30,7 +32,7 @@ Host 与 Client 使用不同的 Cordis context，不能互相直接读取服务�
 |---|---|---|---|
 | 命令注册和执行 | Host | `ctx.commands.register/find/execute` | 自动记录 `command/run`、`command/done` |
 | Skill | Host | `ctx.skills.list/snapshot/get` | 调用方必须检查 `invocation.userInvocable` |
-| Agent preset | Host | `ctx.agentPresets.list/resolve` 与正式 selection/mount 生命周期 | `recompose` 仅用于允许重组的空白 Agent |
+| Agent preset | Host/Client | Client 使用 `ctx.agentPresets.list` 展示候选；Host 使用正式 `recompose(agentCtx, id)` | 仅把命令 invocation 中的 scoped Agent context 交给 DSH；空白 Agent 才允许重组 |
 | Plugin inventory | Host 投影 / Client Remote | 公开 inventory list contract | 只读，字段有限 |
 | 候选补全 | Client | `ctx.commandUi.decorate()` 或唯一 `InputTriggerSource` | 只展示、选择和回填 |
 | Tool | Agent pipeline | Agent 自然语言选择 | 本插件不透传执行 |
@@ -48,14 +50,13 @@ Host 入口导出 `name`、必要的 `inject` 和 `apply(ctx)`；Client 入口�
 Host 处理：
 
 1. 解析名称和任务原文；
-2. 在当前 Agent 的 cwd 和 scope 下查询 Skill；
+2. 在当前 Agent 的 cwd 和 scope 下调用 `ctx.skills.list()` 查询 Skill；
 3. 检查 `invocation.userInvocable === true`；
-4. 构造标准 Skill invocation；
-5. 有 task 时通过受支持的 Agent follow-up/steer 或注入入口继续任务；
-6. 无 task 时只报告验证/加载结果，不启动伪造的空回合；
-7. 取消、失效或注入失败时返回明确错误。
+4. 通过 Agent 的标准用户 `followup` 提交 `/${name} [task]`；
+5. 无 task 时提交只有 Skill 名称的 follow-up，由 DSH 现有 Skill 链路处理；
+6. 目标失效、Agent 不存在或提交失败时返回明确错误。
 
-仅调用 `ctx.skills.get()` 不会自动启动 Agent。现有 `/技能名` 手势由目标 DSH 的 Skill UI 能力负责；本插件不重复注册同名 `/` source，兼容性必须回归验证。
+本插件只通过标准用户 `followup` 把 Skill 命令交给 DSH 现有 Skill 链路，不直接读取或渲染 Skill 内容；本插件不重复注册同名 `/` source，兼容性必须回归验证。
 
 ### 3.2 `/agent`
 
@@ -63,22 +64,20 @@ Host 处理：
 /agent <preset-name>
 ```
 
-第一版只支持空白、idle 且允许重组的 Agent，同时兼容命令后的 prompt。无 prompt 时只应用 preset；有 prompt 时先完成 preset 切换，成功后再自动提交一次 prompt。已有会话仍然拒绝切换。
+当前只支持空白、idle 且允许 DSH 重组的 Agent，同时兼容命令后的 prompt。无 prompt 时只应用 preset；有 prompt 时先完成 preset 切换，成功后再自动提交一次 prompt。已有会话仍然由 DSH 的 scoped context 约束拒绝切换。
 
 Host 处理：
 
-1. 用 `ctx.agentPresets.resolve()` 验证 preset 存在、可读且非 broken；
-2. 检查当前 Agent 没有任何产出且不在运行；
-3. 检查目标组合不突破 session/user/environment 权限上限；
-4. 通过正式 preset selection/mount/recompose 生命周期应用；
-5. 记录 `agent-preset/selected`，保证恢复时可以重建组合；
-6. 失败时保持原 Agent 不变。
+1. 从命令 invocation 取得当前 Agent 的 scoped `agent.ctx`；
+2. 调用 `ctx.agentPresets.recompose(agent.ctx, name)`，由 DSH 校验 preset、作用域、状态和权限约束；
+3. 切换成功且存在 prompt 时，通过 Agent 的标准用户 `followup` 提交一次 prompt；
+4. 任一步失败时返回错误，不提交 prompt。
 
 非空会话不得静默切换。确认 UI、隔离新会话和上下文继承属于后续版本。
 
 ### 3.3 `/plugin`
 
-第一版只做只读发现：
+当前实现只做只读发现：
 
 ```text
 /plugin list
@@ -87,7 +86,7 @@ Host 处理：
 
 `pluginInventory` 是只读投影，inspect 只能展示目标 DSH 版本公开的 Loader entry/module/enabled/phase 等字段，不能承诺自动获得完整 Tool、Command、Web UI 或权限清单。
 
-`open` 只有存在正式 Web route/navigation contract 时才可实现；没有 contract 时应不注册或返回 `unsupported`。`enable/disable` 需要 Loader mutation、授权、并发锁、回滚和生命周期 API，当前不实现。
+`open` 已注册以便统一解析和补全，但当前没有正式 Web route/navigation contract，因此始终返回 `unsupported`。`enable/disable` 需要 Loader mutation、授权、并发锁、回滚和生命周期 API，当前不注册也不实现。
 
 ## 4. Parser 设计
 
@@ -103,8 +102,8 @@ type ParseResult =
 ```ts
 type SlashInvoke =
   | { kind: 'skill'; name: string; prompt?: string; rawInput: string }
-  | { kind: 'agent'; name: string; rawInput: string }
-  | { kind: 'plugin'; subcommand: 'list' | 'inspect'; name?: string; rawInput: string }
+  | { kind: 'agent'; name: string; prompt?: string; rawInput: string }
+  | { kind: 'plugin'; subcommand: 'list' | 'inspect' | 'open'; name?: string; rawInput: string }
 ```
 
 规则：
@@ -129,7 +128,7 @@ Host 执行时必须重新解析、查找和授权，不能信任 Client 候选�
 /sk             → /skill
 /skill          → Skill 候选
 /agent          → preset 候选
-/plugin         → list、inspect
+/plugin         → list、inspect、open
 /plugin inspect → Plugin 候选
 ```
 
@@ -155,7 +154,7 @@ Skill、preset 和 Plugin 元数据均视为不可信内容：不能伪造 syste
 
 命令必须处理取消、Agent busy、候选过期、目标删除、能力变化、重复提交、并发提交、热更新、卸载和错误脱敏。
 
-复用 DSH 的 `command/run` 与 `command/done`，不重复伪造命令生命周期。preset 选择额外记录 `agent-preset/selected`。恢复只恢复记录和 UI 状态；副作用默认不自动重放，执行性重放必须重新授权和确认。
+复用 DSH 的 `command/run` 与 `command/done`，不重复伪造命令生命周期。preset 的切换生命周期由 DSH `recompose` 负责；本插件不自行伪造 `agent-preset/selected` 事件。恢复只恢复记录和 UI 状态；副作用默认不自动重放，执行性重放必须重新授权和确认。
 
 ## 7. 里程碑
 
@@ -166,7 +165,7 @@ Skill、preset 和 Plugin 元数据均视为不可信内容：不能伪造 syste
 | M2 | Client 命令 UI 和动态候选 | 候选只回填，UI 与直接提交一致 |
 | M3 | `/skill` | user-invocable、follow-up、取消和错误测试通过 |
 | M4 | `/plugin list/inspect` | 仅使用公开只读 inventory 字段 |
-| M5 | 空白 Agent preset | 正式 selection/mount、选择事件、权限检查通过 |
+| M5 | 空白 Agent preset | scoped `recompose`、prompt 成功后单次提交、失败不提交 |
 | M6 | 回归和真实 Web 验收 | 安全、恢复、卸载、热更新和 Web 流程通过 |
 | 后续 | 非空会话隔离、`open`、`enable/disable` | 找到正式 DSH contract 后另立设计 |
 
@@ -203,7 +202,7 @@ Skill、preset 和 Plugin 元数据均视为不可信内容：不能伪造 syste
 - `list/inspect` 只读；
 - 只展示公开字段；
 - 不执行任意内部函数；
-- `open/enable/disable` 在无正式 contract 时明确 unsupported 或不注册。
+- `open` 在无正式 contract 时明确 unsupported；`enable/disable` 不注册。
 
 ### Client 与会话
 
@@ -226,7 +225,7 @@ Skill、preset 和 Plugin 元数据均视为不可信内容：不能伪造 syste
   "pluginShortcut": "read-only",
   "pluginList": true,
   "pluginInspect": true,
-  "pluginOpen": false,
+  "pluginOpen": "unsupported",
   "pluginEnableDisable": false,
   "toolShortcut": false,
   "hostClientSeparated": true,

@@ -86,7 +86,7 @@ Host ctx.commands.execute()
 - 当前 Agent 可用；
 - 命令取消或失败时明确返回错误。
 
-仅调用 `ctx.skills.get()` 不会自动启动模型回合。需要让任务继续执行时，必须使用 DSH 支持的 Skill invocation/follow-up 链路；本插件不会伪造 system/developer 消息。
+本插件通过 Agent 的标准用户 `followup` 提交 `/<skill-name> [task]`，交给 DSH 现有 Skill invocation 链路继续处理；不会伪造 system/developer 消息。
 
 ### Agent
 
@@ -94,7 +94,7 @@ Agent preset 可能影响模型、提示词、工具、sandbox、approval 和 pe
 
 - 空白 Agent 才允许按 DSH 支持的 preset 生命周期进行重组；
 - 非空会话不得静默改变 Agent 组合；
-- preset 选择应由正式的 Agent preset API 处理；
+- preset 选择由 DSH 正式的 `agentPresets.recompose(agent.ctx, preset)` API 处理；
 - Agent 权限不能因快捷命令而提升。
 
 Host 调用必须把命令 invocation 中的 `agent.ctx` 传给 `agentPresets.recompose(agentCtx, id)`。不能传入 Agent 对象或根 Context，否则 DSH 会报 `refusing to recompose an unscoped context`。

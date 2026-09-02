@@ -4,7 +4,7 @@
 
 `dsh-quick-invoke` 是独立 Cordis 插件，只增加 `/` 快捷入口，不修改 DSH 核心。
 
-第一版支持：
+当前版本实现并承诺：
 
 ```text
 /skill <skill-name> [任务]
@@ -13,10 +13,12 @@
 /plugin inspect <plugin-name>
 ```
 
+`/plugin open <plugin-name>` 已注册为兼容性命令，但当前没有通用 Web opener，执行会明确返回 unsupported，不代表可以成功导航。
+
 以下能力延期，当前不作为本插件承诺：
 
 ```text
-/plugin open <plugin-name>
+/plugin open 的实际 Web 导航
 /plugin enable <plugin-name>
 /plugin disable <plugin-name>
 非空会话中的 Agent 运行时重组
@@ -57,11 +59,10 @@ Agent / preset
 处理流程：
 
 1. 解析 Skill 名称和剩余任务；
-2. 使用 `ctx.skills.list()` / `ctx.skills.get()` 查找 Skill；
+2. 使用当前 Agent 的 cwd 和 scope 调用 `ctx.skills.list()` 查找 Skill；
 3. 检查 `SkillSummary.invocation.userInvocable`；
-4. 加载并渲染 `SKILL.md`；
-5. 复用 `dsh-tool-skill` 的 `agent/pre-step` 注入路径；
-6. 让剩余任务继续进入当前 Agent 回合。
+4. 通过 Agent 的标准用户 `followup` 提交 `/${name} [任务]`；
+5. 让 DSH 现有 Skill 链路继续处理该 follow-up。
 
 命令不能只返回“加载成功”。现有 `/技能名` 手势由已安装的 DSH Skill UI 能力负责；本插件不重复注册同名 `/` source，宿主命令优先。兼容性需随目标 DSH 版本回归验证。
 
@@ -71,7 +72,7 @@ Agent / preset
 /skill quick-invoke-test 验证快捷调用链路
 ```
 
-可用于 Web 端验证的三个测试 Skill：
+可用于 Web 端验证的四个测试 Skill：
 
 ```text
 /skill quick-invoke-skill-load
@@ -79,19 +80,17 @@ Agent / preset
 /skill quick-invoke-skill-error
 ```
 
-三者分别覆盖候选加载、任务上下文保留和错误边界。
+四者分别覆盖快捷调用、Skill 发现与加载、任务上下文保留和错误边界。
 
 ### Agent
 
 处理流程：
 
-1. 使用 `ctx.agentPresets.list()` / `resolve()` 查询 preset；
-2. 检查 preset 是否损坏、锁定或不可用；
-3. 第一版只允许空白、idle 且允许重组的 Agent；
-4. 使用正式的 preset selection/mount 生命周期；满足约束时才调用 `recompose(agentCtx, id)`；
-5. 切换时不得突破 session/user/environment 权限上限；
-6. 记录 `agent-preset/selected`，保证会话恢复能够重建 preset；
-7. 必须把命令 invocation 中的 Agent scope context 作为 `agentCtx` 传给重组 API，不能传入 Agent 对象或根 Context。
+1. Client 使用 `ctx.agentPresets.list()` 提供候选；
+2. Host 必须把命令 invocation 中的 Agent scope context 作为 `agentCtx` 传给 `recompose(agentCtx, id)`；
+3. 当前只允许 DSH 接受的空白、idle Agent；preset、状态和权限校验由 DSH 的正式 API 完成；
+4. 无 prompt 时只切换 preset；有 prompt 时切换成功后提交一次用户 follow-up，失败时不提交；
+5. 不能传入 Agent 对象或根 Context，否则会触发 `refusing to recompose an unscoped context`。
 
 测试示例：
 
@@ -111,7 +110,7 @@ Agent 的 Web 测试流程与 Skill 一致：输入 `/agent` 后按回车打开�
 /plugin open <plugin-name>
 ```
 
-`list` 和 `inspect` 使用 `pluginInventory.list()` 的只读信息；`open` 只能打开插件公开声明的 Web UI。插件启停不属于本插件范围，继续由 DSH 配置或 CLI 管理。
+`list` 和 `inspect` 使用 `pluginInventory.list()` 的只读信息；`open` 已注册用于统一解析和补全，但当前没有正式 Web route/navigation contract，因此执行明确返回 `unsupported`。插件启停不属于本插件范围，继续由 DSH 配置或 CLI 管理。
 
 三条 Host 命令都声明了参数输入描述（`input.hint`）。这是必要的运行时契约：DSH 对带参数的斜杠输入只有在命令声明 `input` 时才会进入 Host Command；否则会返回未处理结果并继续交给模型。因此 `/plugin list` 的正确验收标准是产生 `command/run`、`command/done` 日志，并返回 `pluginInventory.list()` 的实际清单，而不是让模型解释设计文档。
 
@@ -176,7 +175,7 @@ interface DshAdapter {
 
   listAgentPresets(): Promise<AgentPresetInfo[]>;
   getSessionState(): Promise<SessionState>;
-  switchAgent(name: string, prompt?: string): Promise<InvokeResult>;
+  invokeAgent(name: string, prompt?: string): Promise<InvokeResult>;
 
   listPlugins(): Promise<PluginInfo[]>;
   inspectPlugin(name: string): Promise<PluginDetails>;
@@ -187,11 +186,11 @@ interface DshAdapter {
 真实 DSH API 对应关系：
 
 ```text
-Host 命令：ctx.commands.register / list / find / execute
+Host 命令：ctx.commands.register / execute
 斜杠输入：由 DSH 内置 command source 处理
 命令 UI：ctx.commandUi.decorate
-Skill：ctx.skills.list / snapshot / get
-Agent：ctx.agentPresets.list / resolve / recompose
+Skill：ctx.skills.list；实际调用通过 Agent followup 交给 DSH Skill 链路
+Agent：Client 使用 ctx.agentPresets.list；Host 使用 ctx.agentPresets.recompose
 工具安全：ctx.tools.execute 及 tools/* 生命周期
 插件查询：Host 侧由适配器读取公开 inventory；Client 侧通过 `ctx.remote.pluginInventory.list()` 获取只读投影
 ```
@@ -254,7 +253,7 @@ https://example.com/a/b       → 普通文本
 | 命令 | 选择对象 | 主要作用 | 最终处理方 |
 |---|---|---|---|
 | `/skill` | 用户可调用 Skill | 为当前任务提供流程、规范和知识 | 当前 Agent 的 Skill 注入/执行链路 |
-| `/agent` | Agent preset | 在受支持的空白 Agent 生命周期内选择角色、提示词、模型、工具和权限组合 | Host 的正式 preset selection/mount API；第一版不处理非空会话 |
+| `/agent` | Agent preset | 在受支持的空白 Agent 生命周期内选择角色、提示词、模型、工具和权限组合 | Host 的正式 `agentPresets.recompose` API；当前不处理非空会话 |
 | `/plugin` | 插件及只读操作 | 查看插件和检查公开 inventory 信息 | Host 的只读 `pluginInventory` 投影 |
 
 它们的共同点是：都可以通过候选框选择，选择后先回填输入框，最终由用户发送。区别在于：Skill 改变当前任务的指导内容，Agent 改变当前会话使用的 Agent 配置，Plugin 负责插件管理和查看，不是普通任务执行器。
@@ -277,7 +276,7 @@ https://example.com/a/b       → 普通文本
 - Skill 注入不得伪造 system/developer 消息；
 - ToolRuntime 的 approval、guard、permission 高于用户文本和 Skill 内容；
 - Plugin 只访问公开的只读清单和 Web UI；
-- 所有快捷调用记录 `command/run`、`command/done` 生命周期；
+- 所有快捷调用由 DSH commands 服务记录 `command/run`、`command/done` 生命周期；
 - 第一版不实现命令恢复和重放。
 
 错误至少区分：语法错误、未知能力、不可调用、权限拒绝、需要确认、Web UI 不存在、运行失败和 Host 不支持。
