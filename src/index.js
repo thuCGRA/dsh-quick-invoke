@@ -5,7 +5,7 @@ import { createDshAdapter } from './dsh-adapter.js';
 export const name = 'dsh-quick-invoke';
 
 /** Host services required by the command handlers. */
-export const inject = ['commands', 'skills', 'agentPresets', 'pluginInventory'];
+export const inject = ['commands', 'skills', 'agentPresets', 'pluginInventory', 'apiProxy'];
 
 /**
  * Host entry point.

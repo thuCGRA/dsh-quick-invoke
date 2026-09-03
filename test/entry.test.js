@@ -5,7 +5,7 @@ import { apply, inject, name } from '../src/index.js';
 
 test('exports a DSH plugin entry contract', () => {
   assert.equal(name, 'dsh-quick-invoke');
-  assert.deepEqual(inject, ['commands', 'skills', 'agentPresets', 'pluginInventory']);
+  assert.deepEqual(inject, ['commands', 'skills', 'agentPresets', 'pluginInventory', 'apiProxy']);
   assert.equal(typeof apply, 'function');
 });
 

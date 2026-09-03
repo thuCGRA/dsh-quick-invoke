@@ -52,9 +52,10 @@ window.__ModuleLoader__.load({
 
     const agentDecoration = (ctx) => ({
       name: 'agent', available: () => true,
-      ui: { kind: 'popupSelect', async options() {
+      ui: { kind: 'popupSelect', async options(session) {
         try {
-          const response = await ctx.get('connection').api.agentPresets.list({});
+          const cwd = session?.cwd ?? session?.agent?.session?.header?.cwd;
+          const response = await ctx.get('connection').api.agentPresets.list({ sessionId: session?.sessionId, cwd });
           if (!response.result?.ok) { warn('agentPreset.list returned an error', response.result?.error); return []; }
           const items = (response.result.value.presets ?? []).filter((preset) => !preset.broken)
             .map((preset) => ({ id: preset.id, label: preset.id, detail: preset.description }));

@@ -21,7 +21,7 @@
 /plugin open 的实际 Web 导航
 /plugin enable <plugin-name>
 /plugin disable <plugin-name>
-非空会话中的 Agent 运行时重组
+已有会话的 Agent 运行时切换（由官方 API 拒绝）
 ```
 
 不支持：
@@ -59,7 +59,7 @@ Agent / preset
 处理流程：
 
 1. 解析 Skill 名称和剩余任务；
-2. 使用当前 Agent 的 cwd 和 scope 调用 `ctx.skills.list()` 查找 Skill；
+2. Host 侧使用当前 Agent 的 workspace/scope 调用内部 `ctx.skills.list()` 重新校验 Skill；Web 候选使用 `connection.api.skills.list({ sessionId })`；
 3. 检查 `SkillSummary.invocation.userInvocable`；
 4. 通过 Agent 的标准用户 `followup` 提交 `/${name} [任务]`；
 5. 让 DSH 现有 Skill 链路继续处理该 follow-up。
@@ -86,11 +86,11 @@ Agent / preset
 
 处理流程：
 
-1. Client 使用 `ctx.agentPresets.list()` 提供候选；
-2. Host 必须把命令 invocation 中的 Agent scope context 作为 `agentCtx` 传给 `recompose(agentCtx, id)`；
+1. Client 使用 `connection.api.agentPresets.list({ sessionId })` 提供候选；
+2. 执行时必须调用官方 `agentPreset.select({ sessionId, agentPreset })`；
 3. 当前只允许 DSH 接受的空白、idle Agent；preset、状态和权限校验由 DSH 的正式 API 完成；
 4. 无 prompt 时只切换 preset；有 prompt 时切换成功后提交一次用户 follow-up，失败时不提交；
-5. 不能传入 Agent 对象或根 Context，否则会触发 `refusing to recompose an unscoped context`。
+5. 官方 select seam 不可用时返回 unavailable，不得回退调用内部 `recompose()`。
 
 测试示例：
 
@@ -98,7 +98,7 @@ Agent / preset
 /agent quick-invoke-agent
 ```
 
-Agent 的 Web 测试流程与 Skill 一致：输入 `/agent` 后按回车打开候选框，用 `↑`、`↓` 移动并按回车，输入框应回填 `/agent quick-invoke-agent `。可以继续输入 prompt 并手动发送；选择候选阶段不执行 preset 切换。Host 端先通过 `agentPresets.recompose()` 切换当前空白 Agent，切换成功后再将 prompt 作为一次新的用户 follow-up 自动提交；没有 prompt 时只切换 preset。
+Agent 的 Web 测试流程与 Skill 一致：输入 `/agent` 后按回车打开候选框，用 `↑`、`↓` 移动并按回车，输入框应回填 `/agent quick-invoke-agent `。可以继续输入 prompt 并手动发送；选择候选阶段不执行 preset 切换。发送后通过官方 `agentPreset.select` 切换当前空白 Agent，成功后再将 prompt 作为一次新的用户 follow-up 提交；没有 prompt 时只选择 preset。
 
 ### Plugin
 
@@ -110,7 +110,7 @@ Agent 的 Web 测试流程与 Skill 一致：输入 `/agent` 后按回车打开�
 /plugin open <plugin-name>
 ```
 
-`list` 和 `inspect` 使用 `pluginInventory.list()` 的只读信息；`open` 已注册用于统一解析和补全，但当前没有正式 Web route/navigation contract，因此执行明确返回 `unsupported`。插件启停不属于本插件范围，继续由 DSH 配置或 CLI 管理。
+`list` 和 `inspect` 使用 `pluginInventory/list` 的只读信息；`open` 已注册用于统一解析和补全，但当前没有正式 Web route/navigation contract，因此执行明确返回 `unsupported`。插件启停不属于本插件范围，继续由 DSH 配置或 CLI 管理。
 
 三条 Host 命令都声明了参数输入描述（`input.hint`）。这是必要的运行时契约：DSH 对带参数的斜杠输入只有在命令声明 `input` 时才会进入 Host Command；否则会返回未处理结果并继续交给模型。因此 `/plugin list` 的正确验收标准是产生 `command/run`、`command/done` 日志，并返回 `pluginInventory.list()` 的实际清单，而不是让模型解释设计文档。
 
@@ -179,7 +179,6 @@ interface DshAdapter {
 
   listPlugins(): Promise<PluginInfo[]>;
   inspectPlugin(name: string): Promise<PluginDetails>;
-  openPlugin(name: string): Promise<InvokeResult>;
 }
 ```
 
@@ -189,10 +188,10 @@ interface DshAdapter {
 Host 命令：ctx.commands.register / execute
 斜杠输入：由 DSH 内置 command source 处理
 命令 UI：ctx.commandUi.decorate
-Skill：ctx.skills.list；实际调用通过 Agent followup 交给 DSH Skill 链路
-Agent：Client 使用 ctx.agentPresets.list；Host 使用 ctx.agentPresets.recompose
-工具安全：ctx.tools.execute 及 tools/* 生命周期
-插件查询：Host 侧由适配器读取公开 inventory；Client 侧通过 `ctx.remote.pluginInventory.list()` 获取只读投影
+Skill：Web 候选使用 `connection.api.skills.list({ sessionId })`；实际调用通过普通用户 prompt 交给 DSH Skill 链路，当前没有 `skill.invoke` RPC
+Agent：Client 使用 `connection.api.agentPresets.list`；执行使用官方 `agentPreset.select`，Host Service 的 `ctx.agentPresets.recompose` 不是插件公开入口
+工具安全：由 Agent 标准 tools/approval/guard/permission pipeline 负责，本插件不直接执行 Tool
+插件查询：使用只读 `pluginInventory/list` Remote；仅保证 `entryId`、`moduleName`、`enabled`、`fiberPhase` 字段，不提供启停、安装、卸载或通用 opener
 ```
 
 ## 6. 解析与冲突规则
@@ -253,7 +252,7 @@ https://example.com/a/b       → 普通文本
 | 命令 | 选择对象 | 主要作用 | 最终处理方 |
 |---|---|---|---|
 | `/skill` | 用户可调用 Skill | 为当前任务提供流程、规范和知识 | 当前 Agent 的 Skill 注入/执行链路 |
-| `/agent` | Agent preset | 在受支持的空白 Agent 生命周期内选择角色、提示词、模型、工具和权限组合 | Host 的正式 `agentPresets.recompose` API；当前不处理非空会话 |
+| `/agent` | Agent preset | 在空白会话中通过官方 API 选择角色、提示词、模型、工具和权限组合 | 项目发现、官方 roster 校验；已有会话返回 `agent-preset-locked` |
 | `/plugin` | 插件及只读操作 | 查看插件和检查公开 inventory 信息 | Host 的只读 `pluginInventory` 投影 |
 
 它们的共同点是：都可以通过候选框选择，选择后先回填输入框，最终由用户发送。区别在于：Skill 改变当前任务的指导内容，Agent 改变当前会话使用的 Agent 配置，Plugin 负责插件管理和查看，不是普通任务执行器。

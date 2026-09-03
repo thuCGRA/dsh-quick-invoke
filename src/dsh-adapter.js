@@ -1,3 +1,5 @@
+import { discoverProjectAgentPresets, mergeAgentPresetCandidates } from './project-agent-presets.js';
+
 function service(ctx, name) {
   return ctx?.[name];
 }
@@ -22,12 +24,30 @@ export function createDshAdapter(ctx) {
         .filter((entry) => entry.invocation?.userInvocable === true)
         .map(({ name, description }) => ({ name, description }));
     },
-    async listAgentPresets() {
+    async listAgentPresets(options = {}) {
       const presets = service(ctx, 'agentPresets');
-      if (!presets || typeof presets.list !== 'function') return [];
-      return (await presets.list()).map((entry) => ({
-        name: entry.id,
-        description: entry.description ?? entry.name ?? entry.id
+      const cwd = options.cwd ?? options.agent?.session?.header?.cwd;
+      const installed = presets && typeof presets.list === 'function'
+        ? (await presets.list()).map((entry) => ({
+          name: entry.id ?? entry.name,
+          description: entry.description ?? entry.name ?? entry.id,
+          source: entry.trust === 'user' ? 'user' : 'system',
+          status: entry.broken ? 'broken' : 'available'
+        }))
+        : [];
+      const project = typeof cwd === 'string' ? await discoverProjectAgentPresets(cwd, options) : [];
+      return mergeAgentPresetCandidates(project, installed.map((entry) => ({
+        id: entry.name,
+        label: entry.name,
+        description: entry.description,
+        source: entry.source,
+        status: entry.status,
+        revision: entry.revision
+      }))).map((entry) => ({
+        ...entry,
+        ...(entry.source === 'project'
+          ? { path: project.find((candidate) => candidate.id === entry.id)?.presetPath }
+          : {})
       }));
     },
     async listPlugins() {
@@ -67,17 +87,24 @@ export function createDshAdapter(ctx) {
       return { kind: 'success', text: `Skill queued: ${name}` };
     },
     async invokeAgent(name, _prompt, invocation) {
-      const presets = service(ctx, 'agentPresets');
+      const apiProxy = service(ctx, 'apiProxy');
       const agent = invocation?.agent;
-      const agentCtx = agent?.ctx;
-      if (!presets || typeof presets.recompose !== 'function' || !agent) {
-        return { kind: 'error', text: 'Agent preset switching is unavailable in this session' };
+      const sessionId = invocation?.sessionId ?? agent?.session?.id;
+      if (!apiProxy?.agentPresets || typeof apiProxy.agentPresets.select !== 'function') {
+        return { kind: 'error', text: 'Agent preset selection is unavailable: official agentPreset.select is not exposed to this plugin' };
       }
-      if (!agentCtx || typeof agentCtx !== 'object') {
-        return { kind: 'error', text: 'Agent preset switching requires a scoped Agent context' };
+      if (typeof sessionId !== 'string' || sessionId.length === 0) {
+        return { kind: 'error', text: 'Agent preset selection requires a session id' };
       }
       try {
-        await presets.recompose(agentCtx, name);
+        const response = await apiProxy.agentPresets.select({
+          rpcId: globalThis.crypto.randomUUID(),
+          payload: { sessionId, agentPreset: name }
+        });
+        if (!response?.result?.ok) {
+          const error = response?.result?.error;
+          return { kind: 'error', text: error ? `${error.code}: ${error.message}` : 'Agent preset selection failed' };
+        }
         if (typeof _prompt === 'string' && _prompt.length > 0) submitUserFollowup(agent, _prompt);
         return { kind: 'success', text: `Agent preset selected: ${name}` };
       } catch (error) {

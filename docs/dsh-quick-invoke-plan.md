@@ -21,7 +21,7 @@
 /plugin open 的实际 Web 导航
 /plugin enable <plugin-name>
 /plugin disable <plugin-name>
-非空会话中的 Agent 运行时重组
+已有会话的 Agent 运行时切换（官方返回 `agent-preset-locked`）
 ```
 
 ## 2. Host 与 Client 边界
@@ -31,9 +31,9 @@ Host 与 Client 使用不同的 Cordis context，不能互相直接读取服务�
 | 能力 | 所属端 | 接口/来源 | 约束 |
 |---|---|---|---|
 | 命令注册和执行 | Host | `ctx.commands.register/find/execute` | 自动记录 `command/run`、`command/done` |
-| Skill | Host | `ctx.skills.list/snapshot/get` | 调用方必须检查 `invocation.userInvocable` |
-| Agent preset | Host/Client | Client 使用 `ctx.agentPresets.list` 展示候选；Host 使用正式 `recompose(agentCtx, id)` | 仅把命令 invocation 中的 scoped Agent context 交给 DSH；空白 Agent 才允许重组 |
-| Plugin inventory | Host 投影 / Client Remote | 公开 inventory list contract | 只读，字段有限 |
+| Skill | Host/Client | Client 使用 `connection.api.skills.list({ sessionId })`；Host 重新校验当前 Agent Skill | 只有 `userInvocable=true` 才允许用户调用；调用本身是普通 `session.prompt` |
+| Agent preset | Host/Client | Client 使用 `connection.api.agentPresets.list({ sessionId })`；执行使用官方 `agentPreset.select` | 官方 API 负责空白检查、串行化、锁和 selected 事件 |
+| Plugin inventory | Host 投影 / Client Remote | `pluginInventory/list` | 只读即时快照，仅有 Loader entry/module/enabled/phase |
 | 候选补全 | Client | `ctx.commandUi.decorate()` 或唯一 `InputTriggerSource` | 只展示、选择和回填 |
 | Tool | Agent pipeline | Agent 自然语言选择 | 本插件不透传执行 |
 
@@ -50,7 +50,7 @@ Host 入口导出 `name`、必要的 `inject` 和 `apply(ctx)`；Client 入口�
 Host 处理：
 
 1. 解析名称和任务原文；
-2. 在当前 Agent 的 cwd 和 scope 下调用 `ctx.skills.list()` 查询 Skill；
+2. Host 侧按当前 Agent 的 workspace/scope 重新调用内部 `ctx.skills.list()` 校验；Web 候选统一使用官方 `connection.api.skills.list({ sessionId })`；
 3. 检查 `invocation.userInvocable === true`；
 4. 通过 Agent 的标准用户 `followup` 提交 `/${name} [task]`；
 5. 无 task 时提交只有 Skill 名称的 follow-up，由 DSH 现有 Skill 链路处理；
@@ -61,19 +61,21 @@ Host 处理：
 ### 3.2 `/agent`
 
 ```text
-/agent <preset-name>
+/agent <preset-name> [prompt]
 ```
 
-当前只支持空白、idle 且允许 DSH 重组的 Agent，同时兼容命令后的 prompt。无 prompt 时只应用 preset；有 prompt 时先完成 preset 切换，成功后再自动提交一次 prompt。已有会话仍然由 DSH 的 scoped context 约束拒绝切换。
+只支持空白会话。已有会话由官方 `agentPreset.select` 返回 `agent-preset-locked`；本插件不实现 checkpoint、回滚、强制切换或自动创建新会话。
 
 Host 处理：
 
-1. 从命令 invocation 取得当前 Agent 的 scoped `agent.ctx`；
-2. 调用 `ctx.agentPresets.recompose(agent.ctx, name)`，由 DSH 校验 preset、作用域、状态和权限约束；
+1. 从命令 invocation 取得当前会话的 `sessionId`；
+2. 通过实际可用的官方 `agentPreset.select({ sessionId, agentPreset })` seam，由 DSH 校验 preset、作用域、状态和权限约束；
 3. 切换成功且存在 prompt 时，通过 Agent 的标准用户 `followup` 提交一次 prompt；
 4. 任一步失败时返回错误，不提交 prompt。
 
-非空会话不得静默切换。确认 UI、隔离新会话和上下文继承属于后续版本。
+已有会话不得静默切换。`agent-preset-locked`、按会话串行化和 selected 事件均由官方 `agentPreset.select` 负责；本插件不实现 checkpoint、回滚、强制切换或自动新会话降级。
+
+项目级目录 `.dsh/agent-presets/<id>/` 只产生本地 discovery 结果，不等于官方 roster 注册。候选统一包含 `id`、`label`、`description`、`source`、`revision`、`broken`、`reason`、`status`、`registered`、`selectable`、`ambiguous` 和 `selectionKey`；本地存在但未出现在官方 roster 的候选必须为 `unregistered`、`registered=false`、`selectable=false`。官方 roster 内部的同名优先级由 DSH roots 处理；额外的独立项目来源发生冲突时标记 `ambiguous`，不得让项目候选覆盖官方候选。
 
 ### 3.3 `/plugin`
 
@@ -154,7 +156,7 @@ Skill、preset 和 Plugin 元数据均视为不可信内容：不能伪造 syste
 
 命令必须处理取消、Agent busy、候选过期、目标删除、能力变化、重复提交、并发提交、热更新、卸载和错误脱敏。
 
-复用 DSH 的 `command/run` 与 `command/done`，不重复伪造命令生命周期。preset 的切换生命周期由 DSH `recompose` 负责；本插件不自行伪造 `agent-preset/selected` 事件。恢复只恢复记录和 UI 状态；副作用默认不自动重放，执行性重放必须重新授权和确认。
+复用 DSH 的 `command/run` 与 `command/done`，不重复伪造命令生命周期。preset 的切换生命周期由官方 `agentPreset.select` 负责；本插件不自行调用 `recompose` 或伪造 `agent-preset/selected` 事件。
 
 ## 7. 里程碑
 
@@ -165,9 +167,9 @@ Skill、preset 和 Plugin 元数据均视为不可信内容：不能伪造 syste
 | M2 | Client 命令 UI 和动态候选 | 候选只回填，UI 与直接提交一致 |
 | M3 | `/skill` | user-invocable、follow-up、取消和错误测试通过 |
 | M4 | `/plugin list/inspect` | 仅使用公开只读 inventory 字段 |
-| M5 | 空白 Agent preset | scoped `recompose`、prompt 成功后单次提交、失败不提交 |
-| M6 | 回归和真实 Web 验收 | 安全、恢复、卸载、热更新和 Web 流程通过 |
-| 后续 | 非空会话隔离、`open`、`enable/disable` | 找到正式 DSH contract 后另立设计 |
+| M5 | 空白 Agent preset | 官方 `agentPreset.select`、prompt 成功后单次提交、失败不提交 |
+| M6 | 回归和真实 Web 验收 | 安全、卸载、热更新和 Web 流程通过 |
+| 后续 | `open`、`enable/disable`、已有会话切换 | 找到正式 DSH contract 后另立设计 |
 
 每一阶段必须执行：读取真实类型 → 先写失败测试 → 最小实现 → 阶段测试 → 完整回归 → 卸载清理检查 → 更新文档。未通过不得进入下一阶段。
 
@@ -191,9 +193,9 @@ Skill、preset 和 Plugin 元数据均视为不可信内容：不能伪造 syste
 
 ### Agent
 
-- 第一版仅空白 idle Agent；
-- 非空会话不静默重组；
-- preset 选择事件可恢复；
+- 第一版仅允许官方 API 接受的空白 Agent；
+- 已有会话必须保留官方 `agent-preset-locked` 错误；
+- preset 选择事件由官方 API 记录；
 - 权限不能扩大；
 - 命令后的 prompt 仅在 preset 切换成功后提交一次；切换失败不得提交。
 
@@ -221,7 +223,8 @@ Skill、preset 和 Plugin 元数据均视为不可信内容：不能伪造 syste
   "shortcutSyntax": ["/"],
   "uiCompletion": true,
   "skillShortcut": true,
-  "agentShortcut": "empty-idle-agent-only",
+  "agentShortcut": "empty-session-only",
+  "agentExistingSession": "agent-preset-locked",
   "pluginShortcut": "read-only",
   "pluginList": true,
   "pluginInspect": true,
@@ -230,8 +233,8 @@ Skill、preset 和 Plugin 元数据均视为不可信内容：不能伪造 syste
   "toolShortcut": false,
   "hostClientSeparated": true,
   "coreChangesRequired": false,
-  "agentNonEmptySession": "reject-until-isolation-flow-exists"
+  "agentNonEmptySession": "agent-preset-locked"
 }
 ```
 
-最终原则：先交付小而深的 Parser、Host command、内置 Client command UI、Skill invocation、只读 Plugin inventory 和空白 Agent preset；非空 Agent 重组、插件启停、Web 导航和任意 Tool 透传另行设计。
+最终原则：先交付小而深的 Parser、Host command、内置 Client command UI、Skill invocation、只读 Plugin inventory，以及项目级 preset 发现和空白会话 Agent 选择；插件启停、Web 导航、已有会话切换和任意 Tool 透传不属于当前版本。

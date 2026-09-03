@@ -16,11 +16,11 @@ test('adapter exposes only user-invocable skills and read-only plugin inventory'
   assert.deepEqual(await adapter.listPlugins(), [{ name: 'demo', enabled: true, fiberPhase: 'active' }]);
 });
 
-test('skill invocation lists skills from the active Agent workspace and scope', async () => {
+test('skill invocation validates against the active session skill list', async () => {
   const calls = [];
   const messages = [];
   const agent = {
-    session: { header: { cwd: '/workspace/project' } },
+    session: { id: 'session-test', header: { cwd: '/workspace/project' } },
     followup: (message) => { messages.push(message); }
   };
   const adapter = createDshAdapter({
@@ -46,23 +46,25 @@ test('adapter never provides plugin enable or disable operations', () => {
   assert.equal('disablePlugin' in adapter, false);
 });
 
-test('adapter switches the selected Agent preset for the active session', async () => {
+test('adapter selects an Agent preset through the official Host API seam', async () => {
   const calls = [];
-  const agent = { ctx: {} };
+  const agent = { session: { id: 'session-test' } };
   const adapter = createDshAdapter({
-    agentPresets: { recompose: async (...args) => calls.push(args) }
+    apiProxy: { agentPresets: { select: async (request) => { calls.push(request); return { result: { ok: true, value: { agentPreset: 'quick-invoke-agent' } } }; } } }
   });
   assert.deepEqual(await adapter.invokeAgent('quick-invoke-agent', '', { agent }), {
     kind: 'success', text: 'Agent preset selected: quick-invoke-agent'
   });
-  assert.deepEqual(calls, [[agent.ctx, 'quick-invoke-agent']]);
+  assert.equal(calls[0].payload.sessionId, 'session-test');
+  assert.equal(calls[0].payload.agentPreset, 'quick-invoke-agent');
+  assert.equal(typeof calls[0].rpcId, 'string');
 });
 
 test('adapter submits the Agent prompt once after a successful preset switch', async () => {
   const messages = [];
-  const agent = { ctx: {}, followup: (message) => { messages.push(message); } };
+  const agent = { session: { id: 'session-test' }, followup: (message) => { messages.push(message); } };
   const adapter = createDshAdapter({
-    agentPresets: { recompose: async () => {} }
+    apiProxy: { agentPresets: { select: async () => ({ result: { ok: true, value: { agentPreset: 'quick-invoke-agent' } } }) } }
   });
 
   assert.deepEqual(await adapter.invokeAgent('quick-invoke-agent', '分析当前问题', { agent }), {
@@ -76,23 +78,23 @@ test('adapter submits the Agent prompt once after a successful preset switch', a
 
 test('adapter does not submit an Agent prompt when preset switching fails', async () => {
   const messages = [];
-  const agent = { ctx: {}, followup: (message) => { messages.push(message); } };
+  const agent = { session: { id: 'session-test' }, followup: (message) => { messages.push(message); } };
   const adapter = createDshAdapter({
-    agentPresets: { recompose: async () => { throw new Error('preset failed'); } }
+    apiProxy: { agentPresets: { select: async () => ({ result: { ok: false, error: { code: 'agent-preset-locked', message: 'session already started' } } }) } }
   });
 
   assert.deepEqual(await adapter.invokeAgent('quick-invoke-agent', '不要发送', { agent }), {
-    kind: 'error', text: 'preset failed'
+    kind: 'error', text: 'agent-preset-locked: session already started'
   });
   assert.deepEqual(messages, []);
 });
 
-test('adapter refuses Agent preset switching without a scoped Agent context', async () => {
+test('adapter refuses Agent preset switching when the official seam is unavailable', async () => {
   const adapter = createDshAdapter({
     agentPresets: { recompose: async () => { throw new Error('must not be called'); } }
   });
   assert.deepEqual(await adapter.invokeAgent('quick-invoke-agent', '', { agent: {} }), {
     kind: 'error',
-    text: 'Agent preset switching requires a scoped Agent context'
+    text: 'Agent preset selection is unavailable: official agentPreset.select is not exposed to this plugin'
   });
 });

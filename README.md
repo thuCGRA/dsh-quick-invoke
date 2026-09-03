@@ -38,7 +38,7 @@
 /skill quick-invoke-test 
 ```
 
-用户可以继续输入任务，然后手动发送。对于 `/agent <name> <task>`，Host 会先切换空白 Agent preset，切换成功后自动提交一次 task；候选选择阶段不会调用 Host 命令，也不会执行 Skill、Agent 或 Plugin 操作。
+用户可以继续输入任务，然后手动发送。对于 `/agent <name> <task>`，发送后 Host 通过官方 `agentPreset.select` 选择空白 Agent preset，成功后自动提交一次 task；候选选择阶段不会调用 Host 命令，也不会执行 Skill、Agent 或 Plugin 操作。官方 select seam 不可用时命令明确失败，不回退到内部 `recompose()`。
 
 候选确认后插件会在草稿回填完成后自动把焦点交还当前会话输入框，用户无需再次点击即可继续输入。该行为只恢复输入焦点，不会自动发送消息。
 
@@ -51,6 +51,7 @@ Host
   ctx.commands        注册和执行 /skill、/agent、/plugin
   ctx.skills          查询并校验 Skill
   ctx.agentPresets    查询 Agent preset
+  ctx.apiProxy        通过官方 Host API seam 执行 agentPreset.select
   plugin inventory    读取只读插件投影
 
 Client
@@ -92,12 +93,14 @@ Host ctx.commands.execute()
 
 Agent preset 可能影响模型、提示词、工具、sandbox、approval 和 permission。当前实现不能把 preset 当成任意运行时权限切换：
 
-- 空白 Agent 才允许按 DSH 支持的 preset 生命周期进行重组；
+- 空白 Agent 才允许按 DSH 支持的 preset 生命周期选择 preset；
 - 非空会话不得静默改变 Agent 组合；
-- preset 选择由 DSH 正式的 `agentPresets.recompose(agent.ctx, preset)` API 处理；
+- preset 选择必须由官方 `agentPreset.select({ sessionId, agentPreset })` 处理；
 - Agent 权限不能因快捷命令而提升。
 
-Host 调用必须把命令 invocation 中的 `agent.ctx` 传给 `agentPresets.recompose(agentCtx, id)`。不能传入 Agent 对象或根 Context，否则 DSH 会报 `refusing to recompose an unscoped context`。
+如果插件无法访问官方 select seam，应明确返回 `Agent preset selection unavailable`，不得调用内部 `ctx.agentPresets.recompose()` 作为 fallback。
+
+项目目录 `.dsh/agent-presets/<id>/` 只用于发现本地候选。未出现在官方 `agentPreset.list` roster 中的项目 preset 标记为 `unregistered`，不可选择；`revision`、`path` 仅用于诊断，不能传给官方 `agentPreset.select`。同 ID 的独立来源无法确认时标记为 `ambiguous` 并禁选。
 
 ### Plugin
 
