@@ -78,3 +78,9 @@ test('Web Agent options include project discovery from the session-scoped Remote
   assert.equal(options[1].disabled, true);
   assert.equal(options[1].detail, 'project test · unregistered');
 });
+
+test('Web Agent uses the official empty agentPreset.list payload', async () => {
+  const { decorations } = await loadBrowserPlugin();
+  const options = await decorations[1].ui.options({ sessionId: 's1' });
+  assert.deepEqual(Array.from(options, ({ id }) => id), ['quick-invoke-agent']);
+});

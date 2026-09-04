@@ -7,7 +7,7 @@ const listSkillOptions = async (ctx, session, signal) => {
 };
 
 const listAgentOptions = async (ctx, session, signal) => {
-  const response = await ctx.connection.api.agentPresets.list({ sessionId: session.sessionId }, signal);
+  const response = await ctx.connection.api.agentPresets.list({}, signal);
   if (!response.result?.ok) return [];
   const official = (response.result.value.presets ?? []).filter((preset) => !preset.broken)
     .map((preset) => ({ id: preset.id, label: preset.id, detail: preset.description, disabled: false }));
