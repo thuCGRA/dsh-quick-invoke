@@ -58,6 +58,7 @@ Client
   ctx.commandUi       将候选装饰到 DSH 命令菜单
   ctx.connection      通过 Remote/API 获取动态候选
   ctx.sessions        定位当前会话并回填输入框
+  ctx.remote           挂载项目 Agent preset 的只读 Remote
 ```
 
 执行流程：
@@ -100,7 +101,9 @@ Agent preset 可能影响模型、提示词、工具、sandbox、approval 和 pe
 
 如果插件无法访问官方 select seam，应明确返回 `Agent preset selection unavailable`，不得调用内部 `ctx.agentPresets.recompose()` 作为 fallback。
 
-项目目录 `.dsh/agent-presets/<id>/` 只用于发现本地候选。未出现在官方 `agentPreset.list` roster 中的项目 preset 标记为 `unregistered`，不可选择；`revision`、`path` 仅用于诊断，不能传给官方 `agentPreset.select`。同 ID 的独立来源无法确认时标记为 `ambiguous` 并禁选。
+项目目录 `.dsh/agent/<id>/` 只用于发现本地候选。未出现在官方 `agentPreset.list` roster 中的项目 preset 标记为 `unregistered`，不可选择；`revision`、`path` 仅用于诊断，不能传给官方 `agentPreset.select`。同 ID 的独立来源无法确认时标记为 `ambiguous` 并禁选。
+
+项目候选通过本插件的 `projectAgentPresets/list` Remote 进入 Web 候选框。Remote 使用 Agent session lookup，在 Host 侧从 `agent.session.header.cwd` 解析工作区；客户端不提交 `cwd`、路径或 revision。`unregistered`、`broken`、`stale` 和 `ambiguous` 候选会显示为禁用，只有官方 roster 中可验证的候选才可选择。
 
 ### Plugin
 
@@ -223,6 +226,14 @@ dsh web --no-open
 ## 安装测试 preset 和测试 Skill
 
 仓库中的 `.dsh/skills/` 是项目级测试 Skill，不是用户全局 Skill。直接在本仓库中运行测试时可使用这些 fixture。
+
+项目级 Agent preset 示例位于：
+
+```text
+.dsh/agent/quick-invoke-project-agent/
+```
+
+该目录只用于演示项目级发现。插件会将它标记为 `source=project`、`status=unregistered`、`selectable=false`；只有通过 DSH 官方 preset root/config 流程注册并出现在 `agentPreset.list()` 后才可执行。
 
 如果要在 DSH Web 中测试 Agent preset，可复制示例 preset 到用户 preset 根目录：
 
@@ -400,7 +411,8 @@ node_modules
 │   ├── index.js              # 可测试 Client 实现
 │   └── slash-source.js       # 独立候选 source 测试实现
 ├── docs/                     # 设计和调用说明
-├── examples/agent-presets/   # Agent preset fixture
+├── .dsh/agent/               # 项目级 Agent preset fixture
+├── examples/agent-presets/   # 用户级 Agent preset fixture
 ├── src/
 │   ├── index.js              # Host 插件入口
 │   ├── command-runtime.js    # 命令注册和结果处理

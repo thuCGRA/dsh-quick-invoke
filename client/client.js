@@ -1,6 +1,26 @@
 window.__ModuleLoader__.load({
   id: 'dsh-quick-invoke',
   factory: () => {
+    const projectAgentPresetsRemote = {
+      package: 'dsh-quick-invoke',
+      descriptors: [{
+        id: 'dsh-quick-invoke#projectAgentPresets/list',
+        service: 'projectAgentPresets',
+        namespace: 'projectAgentPresets',
+        method: 'list',
+        invocation: { kind: 'direct' },
+        scope: { context: 'agent', wire: 'agentId' },
+        parameters: [{
+          name: 'agent', wire: 'agentId', source: 'lookup', lookup: 'agent',
+          codec: { mode: 'strict', typeSymbol: '@deepseek-ai/dsh-session/types#SessionId', schema: {
+            parse(value) { if (typeof value !== 'string') throw new TypeError('expected session id'); return value; }
+          } }
+        }],
+        result: { mode: 'strict', typeSymbol: 'dsh-quick-invoke#ProjectAgentPresetSnapshot', schema: {
+          parse(value) { if (!value || !Array.isArray(value.candidates)) throw new TypeError('invalid project preset result'); return value; }
+        } }
+      }]
+    };
     const log = (...args) => globalThis.console?.info?.('[dsh-quick-invoke]', ...args);
     const warn = (...args) => globalThis.console?.warn?.('[dsh-quick-invoke]', ...args);
 
@@ -52,14 +72,26 @@ window.__ModuleLoader__.load({
 
     const agentDecoration = (ctx) => ({
       name: 'agent', available: () => true,
-      ui: { kind: 'popupSelect', async options(session) {
+      ui: { kind: 'popupSelect', async options(session, signal) {
         try {
-          const cwd = session?.cwd ?? session?.agent?.session?.header?.cwd;
-          const response = await ctx.get('connection').api.agentPresets.list({ sessionId: session?.sessionId, cwd });
+          const response = await ctx.get('connection').api.agentPresets.list({ sessionId: session?.sessionId }, signal);
           if (!response.result?.ok) { warn('agentPreset.list returned an error', response.result?.error); return []; }
-          const items = (response.result.value.presets ?? []).filter((preset) => !preset.broken)
-            .map((preset) => ({ id: preset.id, label: preset.id, detail: preset.description }));
-          log('agent candidates', { count: items.length });
+          const official = (response.result.value.presets ?? []).filter((preset) => !preset.broken)
+            .map((preset) => ({ id: preset.id, label: preset.id, detail: preset.description, disabled: false }));
+          const remote = ctx.get('remote');
+          const projectResponse = remote?.projectAgentPresets?.list
+            ? await remote.projectAgentPresets.list(session?.sessionId, signal)
+            : { ok: true, value: { candidates: [] } };
+          const project = projectResponse?.ok
+            ? (projectResponse.value?.candidates ?? []).map((preset) => ({
+              id: preset.id,
+              label: preset.label ?? preset.id,
+              detail: [preset.description, preset.status].filter(Boolean).join(' · '),
+              disabled: preset.selectable !== true
+            }))
+            : [];
+          const items = [...official, ...project];
+          log('agent candidates', { count: items.length, projectCount: project.length });
           return items;
         } catch (error) { warn('agentPreset.list failed', error); return []; }
       }, onSelect(option, session) { return fillComposer(ctx, 'agent', option, session); } }
@@ -74,16 +106,23 @@ window.__ModuleLoader__.load({
       ]; }, onSelect(option, session) { return fillComposer(ctx, 'plugin', option, session); } }
     });
 
-    const apply = (ctx) => {
+    const apply = async (ctx) => {
       const commandUi = ctx.get('commandUi');
       if (!commandUi?.decorate) throw new TypeError('dsh-quick-invoke requires commandUi.decorate');
+      const remote = ctx.get('remote');
+      if (!remote?.$mount) throw new TypeError('dsh-quick-invoke requires remote.$mount');
+      const mountedDispose = await remote.$mount(projectAgentPresetsRemote);
       const disposers = [commandUi.decorate(skillDecoration(ctx)), commandUi.decorate(agentDecoration(ctx)), commandUi.decorate(pluginDecoration(ctx))];
       log('command decorations registered');
       const cleanup = () => disposers.reverse().forEach((dispose) => dispose?.());
       log('client applied');
-      return ctx.effect ? ctx.effect(() => cleanup, 'dsh-quick-invoke command decorations') : cleanup;
+      const dispose = async () => {
+        cleanup();
+        await mountedDispose?.();
+      };
+      return ctx.effect ? ctx.effect(() => dispose, 'dsh-quick-invoke command decorations') : dispose;
     };
 
-    return { apply, inject: ['commandUi', 'connection', 'sessions'] };
+    return { apply, inject: ['commandUi', 'connection', 'sessions', 'remote'] };
   }
 });
