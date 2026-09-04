@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import { readFile } from 'node:fs/promises';
 
-async function loadBrowserPlugin({ projectPresets = [] } = {}) {
+async function loadBrowserPlugin({ projectPresets = [], projectRemoteError = false } = {}) {
   const source = await readFile(new URL('../client/client.js', import.meta.url), 'utf8');
   let plugin;
   vm.runInNewContext(source, { window: { __ModuleLoader__: { load(bundle) { plugin = bundle.factory(() => {}); } } } });
@@ -23,7 +23,10 @@ async function loadBrowserPlugin({ projectPresets = [] } = {}) {
       } };
       if (name === 'remote') return {
         $mount() {},
-        projectAgentPresets: { list: async () => ({ ok: true, value: { candidates: projectPresets } }) }
+        projectAgentPresets: { list: async () => {
+          if (projectRemoteError) throw new Error('project remote unavailable');
+          return { ok: true, value: { candidates: projectPresets } };
+        } }
       };
       throw new Error(`unexpected service ${name}`);
     },
@@ -81,6 +84,12 @@ test('Web Agent options include project discovery from the session-scoped Remote
 
 test('Web Agent uses the official empty agentPreset.list payload', async () => {
   const { decorations } = await loadBrowserPlugin();
+  const options = await decorations[1].ui.options({ sessionId: 's1' });
+  assert.deepEqual(Array.from(options, ({ id }) => id), ['quick-invoke-agent']);
+});
+
+test('Web Agent keeps official candidates when project discovery fails', async () => {
+  const { decorations } = await loadBrowserPlugin({ projectRemoteError: true });
   const options = await decorations[1].ui.options({ sessionId: 's1' });
   assert.deepEqual(Array.from(options, ({ id }) => id), ['quick-invoke-agent']);
 });

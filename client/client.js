@@ -78,18 +78,21 @@ window.__ModuleLoader__.load({
           if (!response.result?.ok) { warn('agentPreset.list returned an error', response.result?.error); return []; }
           const official = (response.result.value.presets ?? []).filter((preset) => !preset.broken)
             .map((preset) => ({ id: preset.id, label: preset.id, detail: preset.description, disabled: false }));
-          const remote = ctx.get('remote');
-          const projectResponse = remote?.projectAgentPresets?.list
-            ? await remote.projectAgentPresets.list(session?.sessionId, signal)
-            : { ok: true, value: { candidates: [] } };
-          const project = projectResponse?.ok
-            ? (projectResponse.value?.candidates ?? []).map((preset) => ({
-              id: preset.id,
-              label: preset.label ?? preset.id,
-              detail: [preset.description, preset.status].filter(Boolean).join(' · '),
-              disabled: preset.selectable !== true
-            }))
-            : [];
+          let project = [];
+          try {
+            const remote = ctx.get('remote');
+            const projectResponse = remote?.projectAgentPresets?.list
+              ? await remote.projectAgentPresets.list(session?.sessionId, signal)
+              : { ok: true, value: { candidates: [] } };
+            project = projectResponse?.ok
+              ? (projectResponse.value?.candidates ?? []).map((preset) => ({
+                id: preset.id,
+                label: preset.label ?? preset.id,
+                detail: [preset.description, preset.status].filter(Boolean).join(' · '),
+                disabled: preset.selectable !== true
+              }))
+              : [];
+          } catch (error) { warn('projectAgentPresets.list failed', error); }
           const items = [...official, ...project];
           log('agent candidates', { count: items.length, projectCount: project.length });
           return items;

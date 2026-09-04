@@ -11,14 +11,17 @@ const listAgentOptions = async (ctx, session, signal) => {
   if (!response.result?.ok) return [];
   const official = (response.result.value.presets ?? []).filter((preset) => !preset.broken)
     .map((preset) => ({ id: preset.id, label: preset.id, detail: preset.description, disabled: false }));
-  const projectResponse = ctx.remote?.projectAgentPresets?.list
-    ? await ctx.remote.projectAgentPresets.list(session.sessionId, signal)
-    : { ok: true, value: { candidates: [] } };
-  const project = projectResponse.ok ? (projectResponse.value?.candidates ?? []).map((preset) => ({
-    id: preset.id, label: preset.label ?? preset.id,
-    detail: [preset.description, preset.status].filter(Boolean).join(' · '),
-    disabled: preset.selectable !== true
-  })) : [];
+  let project = [];
+  try {
+    const projectResponse = ctx.remote?.projectAgentPresets?.list
+      ? await ctx.remote.projectAgentPresets.list(session.sessionId, signal)
+      : { ok: true, value: { candidates: [] } };
+    project = projectResponse.ok ? (projectResponse.value?.candidates ?? []).map((preset) => ({
+      id: preset.id, label: preset.label ?? preset.id,
+      detail: [preset.description, preset.status].filter(Boolean).join(' · '),
+      disabled: preset.selectable !== true
+    })) : [];
+  } catch { /* project discovery is additive; official candidates remain usable */ }
   return [...official, ...project];
 };
 
