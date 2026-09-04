@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import { readFile } from 'node:fs/promises';
 
-async function loadBrowserPlugin() {
+async function loadBrowserPlugin({ projectPresets = [] } = {}) {
   const source = await readFile(new URL('../client/client.js', import.meta.url), 'utf8');
   let plugin;
   vm.runInNewContext(source, { window: { __ModuleLoader__: { load(bundle) { plugin = bundle.factory(() => {}); } } } });
@@ -21,11 +21,15 @@ async function loadBrowserPlugin() {
         skills: { list: async () => ({ result: { ok: true, value: { skills: [{ name: 'quick-invoke-test', description: 'test' }] } } }) },
         agentPresets: { list: async () => ({ result: { ok: true, value: { presets: [{ id: 'quick-invoke-agent', description: 'test' }] } } }) }
       } };
+      if (name === 'remote') return {
+        $mount() {},
+        projectAgentPresets: { list: async () => ({ ok: true, value: { candidates: projectPresets } }) }
+      };
       throw new Error(`unexpected service ${name}`);
     },
     effect(fn) { return fn(); }
   };
-  plugin.apply(context);
+  await plugin.apply(context);
   return { decorations, calls, emitted };
 }
 
@@ -56,4 +60,21 @@ test('Web Agent selection follows the same keyboard popup and composer flow', as
   await decorations[1].ui.onSelect({ id: 'quick-invoke-agent' }, { sessionId: 's1' });
   assert.deepEqual(calls, []);
   assert.equal(emitted.at(-1)[1].text, '/agent quick-invoke-agent ');
+});
+
+test('Web Agent options include project discovery from the session-scoped Remote', async () => {
+  const { decorations } = await loadBrowserPlugin({ projectPresets: [{
+    id: 'quick-invoke-project-agent',
+    label: 'quick-invoke-project-agent',
+    description: 'project test',
+    source: 'project',
+    status: 'unregistered',
+    selectable: false,
+    broken: false,
+    ambiguous: false
+  }] });
+  const options = await decorations[1].ui.options({ sessionId: 's1' });
+  assert.deepEqual(Array.from(options, ({ id }) => id), ['quick-invoke-agent', 'quick-invoke-project-agent']);
+  assert.equal(options[1].disabled, true);
+  assert.equal(options[1].detail, 'project test · unregistered');
 });

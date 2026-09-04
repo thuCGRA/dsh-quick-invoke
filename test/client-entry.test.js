@@ -5,7 +5,7 @@ import vm from 'node:vm';
 import { apply, inject } from '../client/index.js';
 
 test('exports a Web client decoration contract', () => {
-  assert.deepEqual(inject, ['commandUi', 'connection', 'sessions']);
+  assert.deepEqual(inject, ['commandUi', 'connection', 'sessions', 'remote']);
   assert.equal(typeof apply, 'function');
 });
 
@@ -14,6 +14,7 @@ test('decorations use DSH popupSelect for keyboard selection', () => {
   const ctx = {
     commandUi: { decorate(value) { decorations.push(value); return () => {}; } },
     connection: { api: { skills: { list: async () => ({ result: { ok: true, value: { skills: [] } } }) } } },
+    remote: { $mount: async () => async () => {} },
     sessions: { scope() { return { get() { return undefined; } }; } }
   };
   apply(ctx);
@@ -82,7 +83,7 @@ test('browser client uses ModuleLoader and commandUi.decorate', async () => {
 
 test('package declares service dependencies, not package names', async () => {
   const packageJson = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
-  assert.deepEqual(packageJson.dsh.client.inject, ['commandUi', 'connection', 'sessions']);
+  assert.deepEqual(packageJson.dsh.client.inject, ['commandUi', 'connection', 'sessions', 'remote']);
 });
 
 test('browser decorations expose skill options from the session API', async () => {
@@ -95,11 +96,12 @@ test('browser decorations expose skill options from the session API', async () =
       if (name === 'commandUi') return { decorate(value) { decorations.push(value); return () => {}; } };
       if (name === 'connection') return { api: { skills: { list: async () => ({ result: { ok: true, value: { skills: [{ name: 'quick-invoke-test', description: 'test' }] } } }) }, agentPresets: { list: async () => ({ result: { ok: true, value: { presets: [] } } }) } } };
       if (name === 'sessions') return { scope() { return { get() { return undefined; }, emit() {} }; } };
+      if (name === 'remote') return { $mount: async () => async () => {} };
       throw new Error(`unexpected service ${name}`);
     },
     effect(fn) { return fn(); }
   };
-  plugin.apply(ctx);
+  await plugin.apply(ctx);
   const options = await decorations[0].ui.options({ sessionId: 's1' }, new AbortController().signal);
   assert.deepEqual(options.map((option) => option.id), ['quick-invoke-test']);
 });

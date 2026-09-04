@@ -7,7 +7,7 @@ import { discoverProjectAgentPresets, mergeAgentPresetCandidates } from '../src/
 
 test('discovers project Agent presets from nearest .dsh root', async () => {
   const root = await mkdtemp(join(tmpdir(), 'dsh-quick-invoke-'));
-  const preset = join(root, '.dsh', 'agent-presets', 'frontend');
+  const preset = join(root, '.dsh', 'agent', 'frontend');
   await mkdir(preset, { recursive: true });
   await writeFile(join(preset, 'preset.yml'), 'name: Frontend Agent\ndescription: Project frontend\n');
   await writeFile(join(preset, 'agent.cordis.yml'), '- id: persona\n  name: test-persona\n');
@@ -23,10 +23,21 @@ test('discovers project Agent presets from nearest .dsh root', async () => {
 
 test('reports a project preset missing its composition as broken', async () => {
   const root = await mkdtemp(join(tmpdir(), 'dsh-quick-invoke-'));
-  await mkdir(join(root, '.dsh', 'agent-presets', 'reviewer'), { recursive: true });
+  await mkdir(join(root, '.dsh', 'agent', 'reviewer'), { recursive: true });
   const result = await discoverProjectAgentPresets(root);
   assert.equal(result[0].status, 'broken');
   assert.equal(result[0].reason, 'missing agent.cordis.yml');
+});
+
+test('ships a project Agent preset example with an unregistered discovery contract', async () => {
+  const root = new URL('../.dsh/', import.meta.url);
+  const result = await discoverProjectAgentPresets(root.pathname);
+  const candidate = result.find((entry) => entry.id === 'quick-invoke-project-agent');
+  assert.ok(candidate);
+  assert.equal(candidate.source, 'project');
+  assert.equal(candidate.status, 'unregistered');
+  assert.equal(candidate.registered, false);
+  assert.equal(candidate.selectable, false);
 });
 
 test('merges Agent candidates into a canonical contract and rejects duplicate ids', () => {

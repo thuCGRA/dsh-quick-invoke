@@ -1,4 +1,4 @@
-export const inject = ['commandUi', 'connection', 'sessions'];
+export const inject = ['commandUi', 'connection', 'sessions', 'remote'];
 
 const listSkillOptions = async (ctx, session, signal) => {
   const response = await ctx.connection.api.skills.list({ sessionId: session.sessionId }, signal);
@@ -6,11 +6,20 @@ const listSkillOptions = async (ctx, session, signal) => {
   return (response.result.value.skills ?? []).map((skill) => ({ id: skill.name, label: skill.name, detail: skill.description }));
 };
 
-const listAgentOptions = async (ctx) => {
-  const response = await ctx.connection.api.agentPresets.list({});
+const listAgentOptions = async (ctx, session, signal) => {
+  const response = await ctx.connection.api.agentPresets.list({ sessionId: session.sessionId }, signal);
   if (!response.result?.ok) return [];
-  return (response.result.value.presets ?? []).filter((preset) => !preset.broken)
-    .map((preset) => ({ id: preset.id, label: preset.id, detail: preset.description }));
+  const official = (response.result.value.presets ?? []).filter((preset) => !preset.broken)
+    .map((preset) => ({ id: preset.id, label: preset.id, detail: preset.description, disabled: false }));
+  const projectResponse = ctx.remote?.projectAgentPresets?.list
+    ? await ctx.remote.projectAgentPresets.list(session.sessionId, signal)
+    : { ok: true, value: { candidates: [] } };
+  const project = projectResponse.ok ? (projectResponse.value?.candidates ?? []).map((preset) => ({
+    id: preset.id, label: preset.label ?? preset.id,
+    detail: [preset.description, preset.status].filter(Boolean).join(' · '),
+    disabled: preset.selectable !== true
+  })) : [];
+  return [...official, ...project];
 };
 
 // DSH's popup controller exposes a composer-focus hook internally, but older
@@ -54,7 +63,7 @@ export function apply(ctx) {
   });
   return [
     ctx.commandUi.decorate(decoration('skill', (session, signal) => listSkillOptions(ctx, session, signal), 'skill')),
-    ctx.commandUi.decorate(decoration('agent', () => listAgentOptions(ctx), 'agent')),
+    ctx.commandUi.decorate(decoration('agent', (session, signal) => listAgentOptions(ctx, session, signal), 'agent')),
     ctx.commandUi.decorate(decoration('plugin', async () => [
       { id: 'list', label: 'list', detail: 'List installed plugins' },
       { id: 'inspect', label: 'inspect', detail: 'Inspect a plugin' },

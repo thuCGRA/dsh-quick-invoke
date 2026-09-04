@@ -86,7 +86,7 @@ Agent / preset
 
 处理流程：
 
-1. Client 使用 `connection.api.agentPresets.list({ sessionId })` 提供候选；
+1. Client 使用 `connection.api.agentPresets.list({ sessionId })` 获取官方候选，并调用项目专用 `projectAgentPresets/list` Remote 获取 `.dsh/agent/<id>/` 的发现结果；
 2. 执行时必须调用官方 `agentPreset.select({ sessionId, agentPreset })`；
 3. 当前只允许 DSH 接受的空白、idle Agent；preset、状态和权限校验由 DSH 的正式 API 完成；
 4. 无 prompt 时只切换 preset；有 prompt 时切换成功后提交一次用户 follow-up，失败时不提交；
@@ -289,4 +289,4 @@ CLI:     /home/gujy/.nvm/versions/node/v24.19.0/bin/dsh
 Web 配置: /home/gujy/.dsh/profiles/web
 ```
 
-已确认存在命令、输入触发、命令 UI、Skill、Agent preset、ToolRuntime 和只读 Plugin Inventory 相关包。当前工作区的测试 Skill 位于 `.dsh/skills/quick-invoke-test/`；测试 Agent preset fixture 位于 `examples/agent-presets/quick-invoke-agent/`。
+已确认存在命令、输入触发、命令 UI、Skill、Agent preset、ToolRuntime 和只读 Plugin Inventory 相关包。当前工作区的测试 Skill 位于 `.dsh/skills/quick-invoke-test/`；用户级 Agent preset fixture 位于 `examples/agent-presets/quick-invoke-agent/`，项目级 Agent preset fixture 位于 `.dsh/agent/quick-invoke-project-agent/`。项目级 fixture 默认是 `unregistered`，不能绕过官方 roster 直接执行。

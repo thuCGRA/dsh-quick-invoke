@@ -27,7 +27,7 @@ async function isDirectory(path) {
 async function findProjectRoot(cwd) {
   let current = resolve(cwd);
   while (true) {
-    const root = join(current, '.dsh', 'agent-presets');
+    const root = join(current, '.dsh', 'agent');
     if (await isDirectory(root)) return { projectRoot: current, presetRoot: root };
     const parent = dirname(current);
     if (parent === current) return undefined;
