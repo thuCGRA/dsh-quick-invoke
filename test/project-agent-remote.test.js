@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import remote from '../client/project-agent-presets-remote.js';
+import { TYPERT } from '../src/project-agent-presets-remote.js';
 
 test('project Agent Remote is a session-scoped read-only list endpoint', async () => {
   assert.equal(remote.package, 'dsh-quick-invoke');
@@ -20,4 +21,15 @@ test('Host Remote implementation delegates discovery to the session cwd', async 
   assert.match(source, /agent\?\.session\?\.header\?\.cwd/);
   assert.match(source, /discoverProjectAgentPresets\(cwd\)/);
   assert.match(source, /Remote\('list'\)/);
+});
+
+test('exports a strict Host Typert manifest for automatic loader registration', async () => {
+  assert.equal(TYPERT.package, 'dsh-quick-invoke');
+  assert.equal(TYPERT.face, 'host');
+  assert.equal(TYPERT.invocations[0].id, 'dsh-quick-invoke#projectAgentPresets/list');
+  assert.equal(TYPERT.invocations[0].scope.context, 'agent');
+  assert.equal(TYPERT.invocations[0].parameters[0].source, 'lookup');
+  assert.equal(TYPERT.invocations[0].result.mode, 'strict');
+  assert.equal(typeof TYPERT.invocations[0].result.schema.parse, 'function');
+  assert.equal(TYPERT.model.services[0].key, 'projectAgentPresets');
 });
