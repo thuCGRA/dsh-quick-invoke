@@ -86,7 +86,7 @@ Agent / preset
 
 处理流程：
 
-1. Client 使用 `connection.api.agentPresets.list({ sessionId })` 获取官方候选，并调用项目专用 `projectAgentPresets/list` Remote 获取 `.dsh/agent/<id>/` 的发现结果；
+1. Client 使用 `connection.api.agentPresets.list({}, signal)` 获取官方候选，并调用项目专用 `projectAgentPresets.list(sessionId)` Remote 获取 `.dsh/agent/<id>/` 的发现结果；项目 Remote 由 Host 根据 session 解析工作区，Client 不传 `cwd`；
 2. 执行时必须调用官方 `agentPreset.select({ sessionId, agentPreset })`；
 3. 当前只允许 DSH 接受的空白、idle Agent；preset、状态和权限校验由 DSH 的正式 API 完成；
 4. 无 prompt 时只切换 preset；有 prompt 时切换成功后提交一次用户 follow-up，失败时不提交；

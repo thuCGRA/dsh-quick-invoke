@@ -70,7 +70,7 @@ window.__ModuleLoader__.load({
       }, onSelect(option, session) { return fillComposer(ctx, 'skill', option, session); } }
     });
 
-    const agentDecoration = (ctx) => ({
+    const agentDecoration = (ctx, projectRemote) => ({
       name: 'agent', available: () => true,
       ui: { kind: 'popupSelect', async options(session, signal) {
         try {
@@ -80,12 +80,15 @@ window.__ModuleLoader__.load({
             .map((preset) => ({ id: preset.id, label: preset.id, detail: preset.description, disabled: false }));
           let project = [];
           try {
-            const remote = ctx.get('remote');
-            const projectResponse = remote?.projectAgentPresets?.list
-              ? await remote.projectAgentPresets.list(session?.sessionId, signal)
+            const projectResponse = projectRemote?.list
+              ? await projectRemote.list(session?.sessionId)
               : { ok: true, value: { candidates: [] } };
-            project = projectResponse?.ok
-              ? (projectResponse.value?.candidates ?? []).map((preset) => ({
+            const projectResult = projectResponse?.result ?? projectResponse;
+            if (!projectResult?.ok) {
+              warn('projectAgentPresets.list returned an error', projectResult?.error);
+            }
+            project = projectResult?.ok
+              ? (projectResult.value?.candidates ?? []).map((preset) => ({
                 id: preset.id,
                 label: preset.label ?? preset.id,
                 detail: [preset.description, preset.status].filter(Boolean).join(' · '),
@@ -94,7 +97,7 @@ window.__ModuleLoader__.load({
               : [];
           } catch (error) { warn('projectAgentPresets.list failed', error); }
           const items = [...official, ...project];
-          log('agent candidates', { count: items.length, projectCount: project.length });
+          log('agent candidates', { sessionId: session?.sessionId, count: items.length, projectCount: project.length });
           return items;
         } catch (error) { warn('agentPreset.list failed', error); return []; }
       }, onSelect(option, session) { return fillComposer(ctx, 'agent', option, session); } }
@@ -115,7 +118,13 @@ window.__ModuleLoader__.load({
       const remote = ctx.get('remote');
       if (!remote?.$mount) throw new TypeError('dsh-quick-invoke requires remote.$mount');
       const mountedDispose = await remote.$mount(projectAgentPresetsRemote);
-      const disposers = [commandUi.decorate(skillDecoration(ctx)), commandUi.decorate(agentDecoration(ctx)), commandUi.decorate(pluginDecoration(ctx))];
+      let projectRemote;
+      try {
+        projectRemote = ctx.get('remote.projectAgentPresets');
+      } catch (error) {
+        warn('projectAgentPresets namespace unavailable', error);
+      }
+      const disposers = [commandUi.decorate(skillDecoration(ctx)), commandUi.decorate(agentDecoration(ctx, projectRemote)), commandUi.decorate(pluginDecoration(ctx))];
       log('command decorations registered');
       const cleanup = () => disposers.reverse().forEach((dispose) => dispose?.());
       log('client applied');

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import remote from '../client/project-agent-presets-remote.js';
 import { TYPERT } from '../src/project-agent-presets-remote.js';
+import { discoverProjectAgentPresets } from '../src/project-agent-presets.js';
 
 test('project Agent Remote is a session-scoped read-only list endpoint', async () => {
   assert.equal(remote.package, 'dsh-quick-invoke');
@@ -32,4 +33,13 @@ test('exports a strict Host Typert manifest for automatic loader registration', 
   assert.equal(TYPERT.invocations[0].result.mode, 'strict');
   assert.equal(typeof TYPERT.invocations[0].result.schema.parse, 'function');
   assert.equal(TYPERT.model.services[0].key, 'projectAgentPresets');
+});
+
+test('project discovery results satisfy the strict Remote candidate schema', async () => {
+  const candidate = (await discoverProjectAgentPresets(new URL('../.dsh/', import.meta.url).pathname))
+    .find((entry) => entry.id === 'quick-invoke-project-agent');
+  assert.ok(candidate);
+  const parsed = TYPERT.invocations[0].result.schema.parse({ candidates: [candidate] });
+  assert.equal(parsed.candidates[0].selectionKey, 'project:quick-invoke-project-agent');
+  assert.equal(parsed.candidates[0].broken, false);
 });

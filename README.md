@@ -103,7 +103,7 @@ Agent preset 可能影响模型、提示词、工具、sandbox、approval 和 pe
 
 项目目录 `.dsh/agent/<id>/` 只用于发现本地候选。未出现在官方 `agentPreset.list` roster 中的项目 preset 标记为 `unregistered`，不可选择；`revision`、`path` 仅用于诊断，不能传给官方 `agentPreset.select`。同 ID 的独立来源无法确认时标记为 `ambiguous` 并禁选。
 
-项目候选通过本插件的 `projectAgentPresets/list` Remote 进入 Web 候选框。Remote 使用 Agent session lookup，在 Host 侧从 `agent.session.header.cwd` 解析工作区；客户端不提交 `cwd`、路径或 revision。`unregistered`、`broken`、`stale` 和 `ambiguous` 候选会显示为禁用，只有官方 roster 中可验证的候选才可选择。
+项目候选通过本插件的 `projectAgentPresets.list(sessionId)` Remote 进入 Web 候选框，官方候选则由 `connection.api.agentPresets.list({}, signal)` 获取。项目 Remote 使用 Agent session lookup，在 Host 侧从 `agent.session.header.cwd` 解析工作区；客户端不提交 `cwd`、路径或 revision。Remote 候选必须满足 DSH JSON 边界：必填状态字段始终存在，可选的 `description`、`reason` 无值时直接省略，不能传递 `undefined`。`unregistered`、`broken`、`stale` 和 `ambiguous` 候选会显示为禁用，只有官方 roster 中可验证的候选才可选择。
 
 ### Plugin
 

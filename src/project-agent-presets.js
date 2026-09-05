@@ -58,15 +58,18 @@ export async function discoverProjectAgentPresets(cwd, { signal } = {}) {
     candidates.push({
       id: row.name,
       label: metadata.name,
-      description: metadata.description,
+      ...(metadata.description === undefined ? {} : { description: metadata.description }),
       source: 'project',
+      broken: status === 'broken',
       registered: false,
       selectable: false,
       projectRoot: project.projectRoot,
       presetPath: presetDir,
       compositionPath,
       status,
-      reason: composition ? undefined : 'missing agent.cordis.yml',
+      ambiguous: false,
+      selectionKey: `project:${row.name}`,
+      ...(composition ? {} : { reason: 'missing agent.cordis.yml' }),
       revision: digest([manifest, composition])
     });
   }

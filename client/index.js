@@ -13,10 +13,12 @@ const listAgentOptions = async (ctx, session, signal) => {
     .map((preset) => ({ id: preset.id, label: preset.id, detail: preset.description, disabled: false }));
   let project = [];
   try {
-    const projectResponse = ctx.remote?.projectAgentPresets?.list
-      ? await ctx.remote.projectAgentPresets.list(session.sessionId, signal)
+    const projectRemote = ctx.get?.('remote.projectAgentPresets');
+    const projectResponse = projectRemote?.list
+      ? await projectRemote.list(session.sessionId)
       : { ok: true, value: { candidates: [] } };
-    project = projectResponse.ok ? (projectResponse.value?.candidates ?? []).map((preset) => ({
+    const projectResult = projectResponse.result ?? projectResponse;
+    project = projectResult.ok ? (projectResult.value?.candidates ?? []).map((preset) => ({
       id: preset.id, label: preset.label ?? preset.id,
       detail: [preset.description, preset.status].filter(Boolean).join(' · '),
       disabled: preset.selectable !== true

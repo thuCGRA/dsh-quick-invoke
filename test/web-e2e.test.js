@@ -3,13 +3,14 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import { readFile } from 'node:fs/promises';
 
-async function loadBrowserPlugin({ projectPresets = [], projectRemoteError = false } = {}) {
+async function loadBrowserPlugin({ projectPresets = [], projectRemoteError = false, projectRemoteWrapped = false } = {}) {
   const source = await readFile(new URL('../client/client.js', import.meta.url), 'utf8');
   let plugin;
   vm.runInNewContext(source, { window: { __ModuleLoader__: { load(bundle) { plugin = bundle.factory(() => {}); } } } });
   const decorations = [];
   const calls = [];
   const emitted = [];
+  const projectRemoteArgs = [];
   const context = {
     get(name) {
       if (name === 'commandUi') return { decorate(value) { decorations.push(value); return () => {}; } };
@@ -25,16 +26,48 @@ async function loadBrowserPlugin({ projectPresets = [], projectRemoteError = fal
         $mount() {},
         projectAgentPresets: { list: async () => {
           if (projectRemoteError) throw new Error('project remote unavailable');
-          return { ok: true, value: { candidates: projectPresets } };
+          const value = { candidates: projectPresets };
+          return projectRemoteWrapped ? { result: { ok: true, value } } : { ok: true, value };
         } }
+      };
+      if (name === 'remote.projectAgentPresets') return {
+        list: async (...args) => {
+          projectRemoteArgs.push(args);
+          if (projectRemoteError) throw new Error('project remote unavailable');
+          const value = { candidates: projectPresets };
+          return projectRemoteWrapped ? { result: { ok: true, value } } : { ok: true, value };
+        }
       };
       throw new Error(`unexpected service ${name}`);
     },
     effect(fn) { return fn(); }
   };
   await plugin.apply(context);
-  return { decorations, calls, emitted };
+  return { decorations, calls, emitted, projectRemoteArgs };
 }
+
+test('Web Agent keeps the mounted Remote without resolving it from a later callback context', async () => {
+  const source = await readFile(new URL('../client/client.js', import.meta.url), 'utf8');
+  let plugin;
+  vm.runInNewContext(source, { window: { __ModuleLoader__: { load(bundle) { plugin = bundle.factory(() => {}); } } } });
+  const decorations = [];
+  let remoteReads = 0;
+  const remote = { $mount() {} };
+  const ctx = {
+    get(name) {
+      if (name === 'commandUi') return { decorate(value) { decorations.push(value); return () => {}; } };
+      if (name === 'connection') return { api: { skills: { list: async () => ({ result: { ok: true, value: { skills: [] } } }) }, agentPresets: { list: async () => ({ result: { ok: true, value: { presets: [] } } }) } } };
+      if (name === 'sessions') return { scope() { return { get() { return undefined; }, emit() {} }; } };
+      if (name === 'remote') { remoteReads += 1; return remote; }
+      if (name === 'remote.projectAgentPresets') return { list: async () => ({ ok: true, value: { candidates: [] } }) };
+      throw new Error(`unexpected service ${name}`);
+    },
+    effect(fn) { return fn(); }
+  };
+  await plugin.apply(ctx);
+  assert.equal((await decorations[1].ui.options({ sessionId: 's1' })).length, 0);
+  assert.equal(remoteReads, 1);
+});
 
 test('Web command decorations discover Skill, Agent, and Plugin options', async () => {
   const { decorations } = await loadBrowserPlugin();
@@ -66,7 +99,7 @@ test('Web Agent selection follows the same keyboard popup and composer flow', as
 });
 
 test('Web Agent options include project discovery from the session-scoped Remote', async () => {
-  const { decorations } = await loadBrowserPlugin({ projectPresets: [{
+  const { decorations, projectRemoteArgs } = await loadBrowserPlugin({ projectPresets: [{
     id: 'quick-invoke-project-agent',
     label: 'quick-invoke-project-agent',
     description: 'project test',
@@ -80,6 +113,7 @@ test('Web Agent options include project discovery from the session-scoped Remote
   assert.deepEqual(Array.from(options, ({ id }) => id), ['quick-invoke-agent', 'quick-invoke-project-agent']);
   assert.equal(options[1].disabled, true);
   assert.equal(options[1].detail, 'project test · unregistered');
+  assert.deepEqual(projectRemoteArgs, [['s1']]);
 });
 
 test('Web Agent uses the official empty agentPreset.list payload', async () => {
@@ -92,4 +126,14 @@ test('Web Agent keeps official candidates when project discovery fails', async (
   const { decorations } = await loadBrowserPlugin({ projectRemoteError: true });
   const options = await decorations[1].ui.options({ sessionId: 's1' });
   assert.deepEqual(Array.from(options, ({ id }) => id), ['quick-invoke-agent']);
+});
+
+test('Web Agent accepts both direct and wrapped Remote responses', async () => {
+  const { decorations } = await loadBrowserPlugin({ projectRemoteWrapped: true, projectPresets: [{
+    id: 'wrapped-project-agent', label: 'Wrapped project agent', source: 'project',
+    status: 'unregistered', selectable: false, broken: false, ambiguous: false
+  }] });
+  const original = decorations[1].ui.options;
+  const options = await original({ sessionId: 's1' });
+  assert.equal(options.at(-1).id, 'wrapped-project-agent');
 });

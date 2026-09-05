@@ -112,7 +112,8 @@ export async function registerProjectAgentPresetsRemote(ctx) {
 
     async list(agent) {
       const cwd = agent?.session?.header?.cwd;
-      return { candidates: await discoverProjectAgentPresets(cwd) };
+      const candidates = await discoverProjectAgentPresets(cwd);
+      return { candidates };
     }
   }
   const Runtime = decorateMethod(ProjectAgentPresetsRuntimeBase, 'list', Remote('list'));

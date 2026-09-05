@@ -16,8 +16,8 @@ test('discovers project Agent presets from nearest .dsh root', async () => {
   assert.deepEqual(result[0], {
     id: 'frontend', label: 'Frontend Agent', description: 'Project frontend', source: 'project',
     projectRoot: root, presetPath: preset, compositionPath: join(preset, 'agent.cordis.yml'),
-    status: 'unregistered', registered: false, selectable: false,
-    reason: undefined, revision: result[0].revision
+    status: 'unregistered', broken: false, ambiguous: false, selectionKey: 'project:frontend', registered: false, selectable: false,
+    revision: result[0].revision
   });
 });
 
@@ -38,6 +38,18 @@ test('ships a project Agent preset example with an unregistered discovery contra
   assert.equal(candidate.status, 'unregistered');
   assert.equal(candidate.registered, false);
   assert.equal(candidate.selectable, false);
+});
+
+test('project discovery omits undefined optional fields for the DSH JSON boundary', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'dsh-quick-invoke-'));
+  const preset = join(root, '.dsh', 'agent', 'plain');
+  await mkdir(preset, { recursive: true });
+  await writeFile(join(preset, 'preset.yml'), 'name: Plain Agent\n');
+  await writeFile(join(preset, 'agent.cordis.yml'), '- id: persona\n  name: test-persona\n');
+  const [candidate] = await discoverProjectAgentPresets(root);
+  assert.equal(Object.hasOwn(candidate, 'description'), false);
+  assert.equal(Object.hasOwn(candidate, 'reason'), false);
+  assert.equal(Object.values(candidate).includes(undefined), false);
 });
 
 test('merges Agent candidates into a canonical contract and rejects duplicate ids', () => {

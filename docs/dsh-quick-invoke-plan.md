@@ -32,7 +32,7 @@ Host 与 Client 使用不同的 Cordis context，不能互相直接读取服务�
 |---|---|---|---|
 | 命令注册和执行 | Host | `ctx.commands.register/find/execute` | 自动记录 `command/run`、`command/done` |
 | Skill | Host/Client | Client 使用 `connection.api.skills.list({ sessionId })`；Host 重新校验当前 Agent Skill | 只有 `userInvocable=true` 才允许用户调用；调用本身是普通 `session.prompt` |
-| Agent preset | Host/Client | Client 使用官方 `agentPreset.list({ sessionId })` 加项目 `projectAgentPresets/list` Remote；执行使用官方 `agentPreset.select` | 项目候选只发现不注册；官方 API 负责空白检查、串行化、锁和 selected 事件 |
+| Agent preset | Host/Client | Client 使用官方 `connection.api.agentPresets.list({}, signal)` 加项目 `projectAgentPresets.list(sessionId)` Remote；执行使用官方 `agentPreset.select` | 项目候选只发现不注册；官方 API 负责空白检查、串行化、锁和 selected 事件 |
 | Plugin inventory | Host 投影 / Client Remote | `pluginInventory/list` | 只读即时快照，仅有 Loader entry/module/enabled/phase |
 | 候选补全 | Client | `ctx.commandUi.decorate()` 或唯一 `InputTriggerSource` | 只展示、选择和回填 |
 | Tool | Agent pipeline | Agent 自然语言选择 | 本插件不透传执行 |
@@ -75,7 +75,9 @@ Host 处理：
 
 已有会话不得静默切换。`agent-preset-locked`、按会话串行化和 selected 事件均由官方 `agentPreset.select` 负责；本插件不实现 checkpoint、回滚、强制切换或自动新会话降级。
 
-项目级目录 `.dsh/agent/<id>/` 只产生本地 discovery 结果，不等于官方 roster 注册。候选统一包含 `id`、`label`、`description`、`source`、`revision`、`broken`、`reason`、`status`、`registered`、`selectable`、`ambiguous` 和 `selectionKey`；本地存在但未出现在官方 roster 的候选必须为 `unregistered`、`registered=false`、`selectable=false`。官方 roster 内部的同名优先级由 DSH roots 处理；额外的独立项目来源发生冲突时标记 `ambiguous`，不得让项目候选覆盖官方候选。
+项目级目录 `.dsh/agent/<id>/` 只产生本地 discovery 结果，不等于官方 roster 注册。候选统一包含必填字段 `id`、`label`、`source`、`revision`、`broken`、`status`、`registered`、`selectable`、`ambiguous` 和 `selectionKey`，以及有值时才出现的 `description`、`reason`；不得把 `undefined` 发送到 DSH Remote JSON 边界。本地存在但未出现在官方 roster 的候选必须为 `unregistered`、`registered=false`、`selectable=false`。官方 roster 内部的同名优先级由 DSH roots 处理；额外的独立项目来源发生冲突时标记 `ambiguous`，不得让项目候选覆盖官方候选。
+
+两个列表接口的参数边界不得混淆：官方 roster 列表接收空请求对象；项目 Remote 接收且只接收一个 `sessionId`，由 Host 根据该 session 的 `agent.session.header.cwd` 查找最近的 `.dsh/agent/`。项目 Remote 的直接 `{ ok, value }` 与网关包装 `{ result: { ok, value } }` 响应均由 Client 兼容解析。
 
 ### 3.3 `/plugin`
 
